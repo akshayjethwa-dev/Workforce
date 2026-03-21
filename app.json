@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "Workforce",
+    "slug": "workforce",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "workforce",
+    "userInterfaceStyle": "light",
+
+    "icon": "./assets/icon.png",
+
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F172A"
+    },
+
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.workforcepro.app"
+    },
+
+    "android": {
+      "package": "com.workforcepro.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F172A"
+      },
+      "permissions": [
+        "CAMERA",
+        "INTERNET",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    },
+
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "WorkforcePro needs camera access for face recognition and QR code attendance."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "WorkforcePro uses your location to verify geofence compliance during attendance."
+        }
+      ]
+    ],
+
+    "experiments": {
+      "typedRoutes": true
+    },
+
+    "extra": {
+      "eas": {
+        "projectId": "398af4ba-4c88-4430-a3f9-0194721f6aea"
+      }
+    }
+  }
+}
