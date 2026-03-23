@@ -1,14 +1,14 @@
 // src/services/db.ts
 import { db } from "../lib/firebase";
 import { 
+  collection, doc, getDoc, getDocs, setDoc, updateDoc, 
+  deleteDoc, addDoc, query, where, writeBatch 
+} from "firebase/firestore";
+import { 
   Worker, AttendanceRecord, Advance, ShiftConfig, OrgSettings, 
   AppNotification, MonthlyPayroll, SubscriptionTier, PlanLimits, 
   DEFAULT_PLAN_CONFIG, UserProfile 
 } from "../types/index";
-
-// Helper refs
-const col = (path: string) => (db as any).collection(path);
-const docRef = (path: string, id: string) => (db as any).collection(path).doc(id);
 
 export const dbService = {
 
@@ -16,7 +16,7 @@ export const dbService = {
 
   getGlobalPlanConfig: async (): Promise<Record<SubscriptionTier, PlanLimits>> => {
     try {
-      const snap = await docRef("system_settings", "plan_config").get();
+      const snap = await getDoc(doc(db, "system_settings", "plan_config"));
       if (snap.exists()) return snap.data() as Record<SubscriptionTier, PlanLimits>;
       return DEFAULT_PLAN_CONFIG;
     } catch (error) {
@@ -26,22 +26,27 @@ export const dbService = {
   },
 
   updateGlobalPlanConfig: async (config: Record<SubscriptionTier, PlanLimits>) => {
-    await docRef("system_settings", "plan_config").set(config, { merge: true });
+    await setDoc(doc(db, "system_settings", "plan_config"), config, { merge: true });
   },
 
   getAllTenants: async () => {
     try {
-      const snapshot = await col('users').where('role', '==', 'FACTORY_OWNER').get();
-      const tenants = await Promise.all(snapshot.docs.map(async (docSnap: any) => {
+      const q = query(collection(db, 'users'), where('role', '==', 'FACTORY_OWNER'));
+      const snapshot = await getDocs(q);
+      
+      const tenants = await Promise.all(snapshot.docs.map(async (docSnap) => {
         const data = docSnap.data();
-        const workersSnap = await col("workers").where("tenantId", "==", data.tenantId).get();
+        const workersQ = query(collection(db, "workers"), where("tenantId", "==", data.tenantId));
+        const workersSnap = await getDocs(workersQ);
+        
         let plan = 'FREE';
         let overrides = {};
         if (data.tenantId) {
-          const tenantDoc = await docRef('tenants', data.tenantId).get();
+          const tenantDoc = await getDoc(doc(db, 'tenants', data.tenantId));
           if (tenantDoc.exists()) {
-            plan = tenantDoc.data().plan || 'FREE';
-            overrides = tenantDoc.data().overrides || {};
+            const tenantData = tenantDoc.data();
+            plan = tenantData.plan || 'FREE';
+            overrides = tenantData.overrides || {};
           }
         }
         return {
@@ -62,26 +67,26 @@ export const dbService = {
   },
 
   toggleTenantStatus: async (userId: string, currentStatus: boolean) => {
-    await docRef('users', userId).update({ isActive: !currentStatus });
+    await updateDoc(doc(db, 'users', userId), { isActive: !currentStatus });
   },
 
   makeSuperAdmin: async (userId: string) => {
-    await docRef('users', userId).update({ role: 'SUPER_ADMIN' });
+    await updateDoc(doc(db, 'users', userId), { role: 'SUPER_ADMIN' });
     return true;
   },
 
   updateTenantPlan: async (tenantId: string, plan: SubscriptionTier) => {
-    await docRef('tenants', tenantId).update({ plan });
+    await updateDoc(doc(db, 'tenants', tenantId), { plan });
   },
 
   updateTenantOverrides: async (tenantId: string, overrides: Partial<PlanLimits>) => {
-    await docRef('tenants', tenantId).update({ overrides });
+    await updateDoc(doc(db, 'tenants', tenantId), { overrides });
   },
 
-  // NEW: Used by AuthContext
+  // USED BY AUTH CONTEXT
   getUserProfile: async (uid: string): Promise<UserProfile | null> => {
     try {
-      const snap = await docRef('users', uid).get();
+      const snap = await getDoc(doc(db, 'users', uid));
       return snap.exists() ? (snap.data() as UserProfile) : null;
     } catch (e) {
       console.error('getUserProfile error', e);
@@ -89,10 +94,9 @@ export const dbService = {
     }
   },
 
-  // NEW: Used by AuthContext
   getTenant: async (tenantId: string) => {
     try {
-      const snap = await docRef('tenants', tenantId).get();
+      const snap = await getDoc(doc(db, 'tenants', tenantId));
       return snap.exists() ? snap.data() : null;
     } catch (e) {
       console.error('getTenant error', e);
@@ -101,25 +105,25 @@ export const dbService = {
   },
 
   updateTenant: async (tenantId: string, data: { name: string }) => {
-    await docRef('tenants', tenantId).update(data);
+    await updateDoc(doc(db, 'tenants', tenantId), data);
   },
 
   // --- WORKER MANAGEMENT ---
 
   getWorkers: async (tenantId: string): Promise<Worker[]> => {
     if (!tenantId) return [];
-    const snapshot = await col("workers").where("tenantId", "==", tenantId).get();
-    return snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as Worker));
+    const q = query(collection(db, "workers"), where("tenantId", "==", tenantId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Worker));
   },
 
   getWorker: async (tenantId: string, workerId: string): Promise<Worker | null> => {
-  const snap = await docRef("workers", workerId).get();
-  if (!snap.exists()) return null;
-  const data = snap.data() as Worker;
-  if (data.tenantId !== tenantId) return null;
-  return { ...data, id: snap.id } as Worker;
-},
-
+    const snap = await getDoc(doc(db, "workers", workerId));
+    if (!snap.exists()) return null;
+    const data = snap.data() as Worker;
+    if (data.tenantId !== tenantId) return null;
+    return { ...data, id: snap.id } as Worker;
+  },
 
   addWorker: async (worker: Omit<Worker, 'id'>) => {
     const workerData = {
@@ -127,58 +131,63 @@ export const dbService = {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    const ref = await col("workers").add(workerData);
+    const ref = await addDoc(collection(db, "workers"), workerData);
     return ref.id;
   },
 
   updateWorker: async (workerId: string, data: Partial<Worker>) => {
-    await docRef("workers", workerId).update({
+    await updateDoc(doc(db, "workers", workerId), {
       ...data,
       updatedAt: new Date().toISOString(),
     });
   },
 
   deleteWorker: async (tenantId: string, workerId: string) => {
-    const attendanceSnap = await col("attendance").where("tenantId", "==", tenantId).get();
-    const advancesSnap = await col("advances").where("tenantId", "==", tenantId).get();
-    const payrollsSnap = await col("payrolls").where("tenantId", "==", tenantId).get();
+    // Instead of looping individual deletes which is slow, we use writeBatch for safety and speed.
+    const batch = writeBatch(db);
+    
+    const attQ = query(collection(db, "attendance"), where("tenantId", "==", tenantId), where("workerId", "==", workerId));
+    const attSnap = await getDocs(attQ);
+    attSnap.docs.forEach(d => batch.delete(doc(db, "attendance", d.id)));
 
-    const deletes = [
-      ...attendanceSnap.docs.filter((d: any) => d.data().workerId === workerId)
-        .map((d: any) => docRef("attendance", d.id).delete()),
-      ...advancesSnap.docs.filter((d: any) => d.data().workerId === workerId)
-        .map((d: any) => docRef("advances", d.id).delete()),
-      ...payrollsSnap.docs.filter((d: any) => d.data().workerId === workerId)
-        .map((d: any) => docRef("payrolls", d.id).delete()),
-    ];
+    const advQ = query(collection(db, "advances"), where("tenantId", "==", tenantId), where("workerId", "==", workerId));
+    const advSnap = await getDocs(advQ);
+    advSnap.docs.forEach(d => batch.delete(doc(db, "advances", d.id)));
 
-    await Promise.all(deletes);
-    await docRef("workers", workerId).delete();
+    const payQ = query(collection(db, "payrolls"), where("tenantId", "==", tenantId), where("workerId", "==", workerId));
+    const paySnap = await getDocs(payQ);
+    paySnap.docs.forEach(d => batch.delete(doc(db, "payrolls", d.id)));
+
+    batch.delete(doc(db, "workers", workerId));
+    await batch.commit();
   },
 
   // --- NOTIFICATIONS ---
 
   addNotification: async (notification: Omit<AppNotification, 'id'>) => {
-    await col("notifications").add(notification);
+    await addDoc(collection(db, "notifications"), notification);
   },
 
   getNotifications: async (tenantId: string): Promise<AppNotification[]> => {
     if (!tenantId) return [];
-    const snapshot = await col("notifications").where("tenantId", "==", tenantId).get();
+    const q = query(collection(db, "notifications"), where("tenantId", "==", tenantId));
+    const snapshot = await getDocs(q);
     return snapshot.docs
-      .map((d: any) => ({ id: d.id, ...d.data() } as AppNotification))
-      .sort((a: AppNotification, b: AppNotification) => 
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      .map(d => ({ id: d.id, ...d.data() } as AppNotification))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
   markNotificationRead: async (notificationId: string) => {
-    await docRef("notifications", notificationId).update({ read: true });
+    await updateDoc(doc(db, "notifications", notificationId), { read: true });
   },
 
   deleteAllNotifications: async (tenantId: string) => {
     if (!tenantId) return;
-    const snapshot = await col("notifications").where("tenantId", "==", tenantId).get();
-    await Promise.all(snapshot.docs.map((d: any) => docRef("notifications", d.id).delete()));
+    const q = query(collection(db, "notifications"), where("tenantId", "==", tenantId));
+    const snapshot = await getDocs(q);
+    const batch = writeBatch(db);
+    snapshot.docs.forEach(d => batch.delete(doc(db, "notifications", d.id)));
+    await batch.commit();
   },
 
   // --- ATTENDANCE ---
@@ -186,66 +195,57 @@ export const dbService = {
   getTodayAttendance: async (tenantId: string) => {
     if (!tenantId) return [];
     const today = new Date().toISOString().split('T')[0];
-    const snapshot = await col("attendance")
-      .where("tenantId", "==", tenantId)
-      .where("date", "==", today)
-      .get();
-    return snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as AttendanceRecord));
+    const q = query(collection(db, "attendance"), where("tenantId", "==", tenantId), where("date", "==", today));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord));
   },
 
   getAttendanceByDate: async (tenantId: string, date: string) => {
-  if (!tenantId) return [];
-  const snapshot = await col("attendance")
-    .where("tenantId", "==", tenantId)
-    .where("date", "==", date)
-    .get();
-  return snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as AttendanceRecord));
-},
+    if (!tenantId) return [];
+    const q = query(collection(db, "attendance"), where("tenantId", "==", tenantId), where("date", "==", date));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord));
+  },
 
   getTodayAttendanceForWorker: async (tenantId: string, workerId: string): Promise<AttendanceRecord | null> => {
-  const today = new Date().toISOString().split('T')[0];
-  const snapshot = await col("attendance")
-    .where("tenantId", "==", tenantId)
-    .where("workerId", "==", workerId)
-    .where("date", "==", today)
-    .get();
-  if (snapshot.empty) return null;
-  const d = snapshot.docs[0];
-  return { id: d.id, ...d.data() } as AttendanceRecord;
-},
+    const today = new Date().toISOString().split('T')[0];
+    const q = query(collection(db, "attendance"), where("tenantId", "==", tenantId), where("workerId", "==", workerId), where("date", "==", today));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return null;
+    const d = snapshot.docs[0];
+    return { id: d.id, ...d.data() } as AttendanceRecord;
+  },
 
   getAttendanceHistory: async (tenantId: string) => {
     if (!tenantId) return [];
-    const snapshot = await col("attendance").where("tenantId", "==", tenantId).get();
-    return snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as AttendanceRecord));
+    const q = query(collection(db, "attendance"), where("tenantId", "==", tenantId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord));
   },
 
-  getAttendanceByWorkerAndMonth: async (
-  tenantId: string,
-  workerId: string,
-  monthPrefix: string   // e.g. "2026-03"
-): Promise<AttendanceRecord[]> => {
-  if (!tenantId || !workerId) return [];
-  const startDate = `${monthPrefix}-01`;
-  const endDate   = `${monthPrefix}-31`;
-  const snapshot  = await col("attendance")
-    .where("tenantId", "==", tenantId)
-    .where("workerId", "==", workerId)
-    .where("date", ">=", startDate)
-    .where("date", "<=", endDate)
-    .get();
-  return snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as AttendanceRecord));
-},
+  getAttendanceByWorkerAndMonth: async (tenantId: string, workerId: string, monthPrefix: string): Promise<AttendanceRecord[]> => {
+    if (!tenantId || !workerId) return [];
+    const startDate = `${monthPrefix}-01`;
+    const endDate   = `${monthPrefix}-31`;
+    const q = query(collection(db, "attendance"), 
+      where("tenantId", "==", tenantId), 
+      where("workerId", "==", workerId), 
+      where("date", ">=", startDate), 
+      where("date", "<=", endDate)
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord));
+  },
 
   markAttendanceOnline: async (record: AttendanceRecord) => {
     const recordId = `${record.tenantId}_${record.workerId}_${record.date}`;
-    await docRef("attendance", recordId).set({ ...record, id: recordId }, { merge: true });
+    await setDoc(doc(db, "attendance", recordId), { ...record, id: recordId }, { merge: true });
   },
 
   markAttendance: async (record: AttendanceRecord) => {
     const recordId = `${record.tenantId}_${record.workerId}_${record.date}`;
     try {
-      await docRef("attendance", recordId).set({ ...record, id: recordId }, { merge: true });
+      await setDoc(doc(db, "attendance", recordId), { ...record, id: recordId }, { merge: true });
     } catch (e) {
       console.error("Failed to write attendance", e);
     }
@@ -255,19 +255,22 @@ export const dbService = {
 
   getAdvances: async (tenantId: string): Promise<Advance[]> => {
     if (!tenantId) return [];
-    const snapshot = await col("advances").where("tenantId", "==", tenantId).get();
-    return snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as Advance));
+    const q = query(collection(db, "advances"), where("tenantId", "==", tenantId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Advance));
   },
 
   addAdvance: async (advance: Omit<Advance, 'id'>) => {
-    const ref = await col("advances").add(advance);
+    const ref = await addDoc(collection(db, "advances"), advance);
     return ref.id;
   },
 
   // --- SETTINGS ---
 
   getOrgSettings: async (tenantId: string): Promise<OrgSettings> => {
-    const snap = await docRef("settings", tenantId).get();
+    const snap = await getDoc(doc(db, "settings", tenantId));
+    
+    // Default objects exactly as you had them
     const defaultShifts: ShiftConfig[] = [{
       id: 'default', name: 'General Shift', startTime: '09:00', endTime: '18:00',
       gracePeriodMins: 15, maxGraceAllowed: 3, breakDurationMins: 60,
@@ -281,6 +284,7 @@ export const dbService = {
       dailyWagePfPercentage: 100, pfContributionRate: 12,
       epsContributionRate: 8.33, epfWageCeiling: 15000
     };
+
     if (snap.exists()) {
       const data = snap.data();
       return {
@@ -306,7 +310,7 @@ export const dbService = {
   },
 
   saveOrgSettings: async (tenantId: string, settings: OrgSettings) => {
-    await docRef("settings", tenantId).set({
+    await setDoc(doc(db, "settings", tenantId), {
       ...settings,
       updatedAt: new Date().toISOString()
     }, { merge: true });
@@ -318,16 +322,14 @@ export const dbService = {
   },
 
   saveShifts: async (tenantId: string, shifts: ShiftConfig[]) => {
-    await docRef("settings", tenantId).set({ shifts }, { merge: true });
+    await setDoc(doc(db, "settings", tenantId), { shifts }, { merge: true });
   },
 
   getMonthlyLateCount: async (tenantId: string, workerId: string): Promise<number> => {
     const startOfMonth = new Date().toISOString().slice(0, 7);
-    const snapshot = await col("attendance")
-      .where("tenantId", "==", tenantId)
-      .where("workerId", "==", workerId)
-      .get();
-    return snapshot.docs.filter((d: any) => {
+    const q = query(collection(db, "attendance"), where("tenantId", "==", tenantId), where("workerId", "==", workerId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.filter((d) => {
       const data = d.data();
       return data.date >= `${startOfMonth}-01` && data.lateStatus?.isLate === true;
     }).length;
@@ -336,57 +338,58 @@ export const dbService = {
   // --- TEAM ---
 
   getTeam: async (tenantId: string) => {
-    const snapshot = await col("users")
-      .where("tenantId", "==", tenantId)
-      .where("role", "==", "SUPERVISOR")
-      .get();
-    return snapshot.docs.map((d: any) => d.data());
+    const q = query(collection(db, "users"), where("tenantId", "==", tenantId), where("role", "==", "SUPERVISOR"));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => d.data());
   },
 
   getTeamInvites: async (tenantId: string): Promise<any[]> => {
-  if (!tenantId) return [];
-  const snapshot = await col('invites').where('tenantId', '==', tenantId).get();
-  return snapshot.docs.map((d: any) => ({ id: d.id, email: d.id, ...d.data() }));
-},
+    if (!tenantId) return [];
+    const q = query(collection(db, 'invites'), where('tenantId', '==', tenantId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, email: d.id, ...d.data() }));
+  },
 
   inviteManager: async (adminTenantId: string, managerEmail: string, managerName: string) => {
-    await docRef("invites", managerEmail).set({
+    await setDoc(doc(db, "invites", managerEmail), {
       email: managerEmail, name: managerName, tenantId: adminTenantId,
       role: 'SUPERVISOR', createdAt: new Date().toISOString()
     });
   },
 
   checkInvite: async (email: string) => {
-    const snap = await docRef("invites", email).get();
+    const snap = await getDoc(doc(db, "invites", email));
     return snap.exists() ? snap.data() : null;
   },
 
   deleteInvite: async (email: string) => {
-    await docRef("invites", email).delete();
+    await deleteDoc(doc(db, "invites", email));
   },
 
   removeManager: async (uid: string) => {
-    await docRef("users", uid).update({ tenantId: null, role: null });
+    await updateDoc(doc(db, "users", uid), { tenantId: null, role: null });
   },
 
   // --- KIOSK TERMINALS ---
 
   getKioskTerminals: async (tenantId: string): Promise<any[]> => {
     if (!tenantId) return [];
-    const snapshot = await col("kiosks").where("tenantId", "==", tenantId).get();
-    return snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    const q = query(collection(db, "kiosks"), where("tenantId", "==", tenantId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
   },
 
   addKioskTerminal: async (terminal: any) => {
-    await col("kiosks").add(terminal);
+    await addDoc(collection(db, "kiosks"), terminal);
   },
 
   deleteKioskTerminal: async (id: string) => {
-    await docRef("kiosks", id).delete();
+    await deleteDoc(doc(db, "kiosks", id));
   },
 
   verifyKioskPairingCode: async (code: string): Promise<any | null> => {
-    const snapshot = await col("kiosks").where("pairingCode", "==", code).get();
+    const q = query(collection(db, "kiosks"), where("pairingCode", "==", code));
+    const snapshot = await getDocs(q);
     if (snapshot.empty) return null;
     return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
   },
@@ -395,14 +398,12 @@ export const dbService = {
 
   getPayrollsByMonth: async (tenantId: string, month: string): Promise<MonthlyPayroll[]> => {
     if (!tenantId) return [];
-    const snapshot = await col("payrolls")
-      .where("tenantId", "==", tenantId)
-      .where("month", "==", month)
-      .get();
-    return snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as MonthlyPayroll));
+    const q = query(collection(db, "payrolls"), where("tenantId", "==", tenantId), where("month", "==", month));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MonthlyPayroll));
   },
 
   savePayroll: async (payroll: MonthlyPayroll) => {
-    await docRef("payrolls", payroll.id).set(payroll, { merge: true });
+    await setDoc(doc(db, "payrolls", payroll.id), payroll, { merge: true });
   }
 };

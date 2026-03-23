@@ -8,6 +8,7 @@ import {
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth'; // Added modular imports
 import { auth } from '../../src/lib/firebase';
 import { dbService } from '../../src/services/db';
 
@@ -39,7 +40,8 @@ export default function LoginScreen() {
     setError('');
     setSuccessMsg('');
     try {
-      await (auth as any).signInWithEmailAndPassword(email.trim(), password);
+      // Updated to Firebase modular syntax
+      await signInWithEmailAndPassword(auth as any, email.trim(), password);
       // _layout.tsx RootGuard handles redirect after auth state changes
     } catch (err: any) {
       setError(err.message?.replace('Firebase: ', '') ?? 'Login failed.');
@@ -57,7 +59,8 @@ export default function LoginScreen() {
     setResetLoading(true);
     setError('');
     try {
-      await (auth as any).sendPasswordResetEmail(email.trim());
+      // Updated to Firebase modular syntax
+      await sendPasswordResetEmail(auth as any, email.trim());
       setSuccessMsg('Password reset email sent! Check your inbox.');
     } catch (err: any) {
       setError(err.message?.replace('Firebase: ', '') ?? 'Failed to send reset email.');

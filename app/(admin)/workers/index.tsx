@@ -31,10 +31,10 @@ const WorkerCard = React.memo(
     const initial = (worker.name ?? '?').charAt(0).toUpperCase();
 
     const isMonthly = worker.wageConfig?.type === 'MONTHLY';
-const wageAmount = worker.wageConfig?.amount ?? 0;
-const wageLabel = isMonthly
-  ? `₹${wageAmount.toLocaleString()} / month`
-  : `₹${wageAmount.toLocaleString()} / day`;
+    const wageAmount = worker.wageConfig?.amount ?? 0;
+    const wageLabel = isMonthly
+      ? `₹${wageAmount.toLocaleString()} / month`
+      : `₹${wageAmount.toLocaleString()} / day`;
 
     return (
       <View style={cardStyles.card}>
@@ -354,6 +354,9 @@ export default function WorkersScreen() {
         </View>
       ) : (
         <FlatList
+          // THE FIX: We force the component to remount cleanly with numColumns set to 0 instead of 1 
+          // or omitting it. By removing the explicit height on the separator, we avoid CSS-interop attempting to wrap it.
+          key={"single-col"} 
           data={filteredWorkers}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
@@ -369,9 +372,8 @@ export default function WorkersScreen() {
           }
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-          // Performance
-          removeClippedSubviews
+          ItemSeparatorComponent={() => <View style={styles.separator} />} 
+          removeClippedSubviews={false} // Disable on web to prevent layout bugs
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={5}
@@ -633,6 +635,9 @@ const styles = StyleSheet.create({
   // List
   listContent: { paddingHorizontal: 16, paddingBottom: 100 },
   listHeader: { paddingBottom: 12 },
+  
+  // FIX: Replaced inline style block for separator
+  separator: { height: 10 }, 
 
   // Search
   searchBar: {

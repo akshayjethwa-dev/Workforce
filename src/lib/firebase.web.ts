@@ -1,8 +1,4 @@
-// src/lib/firebase.web.ts
-// This file is used on WEB only
-// Expo auto-picks this when running in browser
-
-import { initializeApp, getApps } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, initializeFirestore, persistentLocalCache } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -17,11 +13,25 @@ const firebaseConfig = {
 };
 
 // Prevent duplicate app initialization
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
-export const firestore = getFirestore(app);
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache()
-});
 export const storage = getStorage(app);
+
+// Safely initialize Firestore with caching
+let dbInstance;
+try {
+  // Try to initialize it with the persistent cache (works on first load)
+  dbInstance = initializeFirestore(app, {
+    localCache: persistentLocalCache()
+  });
+} catch (error) {
+  // If it throws an error (e.g., during Fast Refresh because it's already initialized),
+  // fallback to grabbing the existing instance
+  dbInstance = getFirestore(app);
+}
+
+// Export the single, safely initialized instance. 
+// (Exported as both 'db' and 'firestore' just in case you import it differently across your app)
+export const db = dbInstance;
+export const firestore = dbInstance;

@@ -1,7 +1,7 @@
 {
   "name": "workforcepro-universal",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -23,6 +23,7 @@
     "expo-camera": "~55.0.10",
     "expo-constants": "~55.0.9",
     "expo-file-system": "~55.0.11",
+    "expo-linear-gradient": "~55.0.9",
     "expo-linking": "~55.0.8",
     "expo-location": "~55.1.4",
     "expo-print": "~55.0.9",
@@ -33,7 +34,7 @@
     "lucide-react-native": "^0.577.0",
     "nativewind": "^4.0.1",
     "react": "^19.2.4",
-    "react-dom": "19.2.0",
+    "react-dom": "^19.2.4",
     "react-native": "0.83.2",
     "react-native-gifted-charts": "^1.4.76",
     "react-native-linear-gradient": "^2.8.3",
@@ -45,6 +46,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "babel-preset-expo": "^55.0.12",
     "tailwindcss": "^3.3.2",
     "typescript": "~5.9.2"
   },
