@@ -2,15 +2,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, TextInput,
-  Modal, ActivityIndicator, Alert, Switch,
+  Modal, ActivityIndicator, Alert, Switch, Platform
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FaceDetector from 'expo-face-detector';
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from '@react-native-firebase/storage';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { dbService } from '../../../src/services/db';
+import { storage } from '../../../src/lib/firebase'; 
 import { Worker, ShiftConfig, Branch, OrgSettings } from '../../../src/types/index';
 
 // ─────────────────────────────────────────────────────────────
@@ -93,7 +94,7 @@ function Toast({ message, visible }: { message: string; visible: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Build descriptor from expo-face-detector result
+// Build descriptor from expo-face-detector result (Mobile Only)
 // ─────────────────────────────────────────────────────────────
 function buildDescriptorFromFace(face: DetectedFace): number[] {
   const W = face.bounds.size.width  || 1;
@@ -119,9 +120,24 @@ function buildDescriptorFromFace(face: DetectedFace): number[] {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Web Human Instance (Lazy Load)
+// ─────────────────────────────────────────────────────────────
+let webHumanInstance: any = null;
+const getWebHuman = async () => {
+  if (webHumanInstance) return webHumanInstance;
+  const { default: Human } = await import('@vladmandic/human');
+  webHumanInstance = new Human({
+    modelBasePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human/models/',
+    face: { enabled: true, detector: { rotation: false }, mesh: { enabled: true }, iris: { enabled: true }, description: { enabled: true }, emotion: { enabled: false } },
+    body: { enabled: false }, hand: { enabled: false }, object: { enabled: false }, gesture: { enabled: false }
+  });
+  await webHumanInstance.load();
+  await webHumanInstance.warmup();
+  return webHumanInstance;
+};
+
+// ─────────────────────────────────────────────────────────────
 // Face Enrollment Modal
-// Uses: expo-camera (takePictureAsync) + expo-face-detector (detectFacesAsync)
-// No onFacesDetected / no ML Kit needed
 // ─────────────────────────────────────────────────────────────
 function FaceEnrollModal({
   visible, onClose, onEnrolled,
@@ -139,14 +155,19 @@ function FaceEnrollModal({
   const [isCapturing, setIsCapturing]   = useState(false);
   const [statusMsg, setStatusMsg]       = useState('Position your face in the oval');
 
-  // ── Stop tick ────────────────────────────────────────────
   const stopTick = useCallback(() => {
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
   }, []);
 
-  // ── Start background preview tick (low-quality for speed) ─
   const startTick = useCallback(() => {
     stopTick();
+    
+    if (Platform.OS === 'web') {
+      setFaceDetected(true);
+      setStatusMsg('Web Mode: Position face & tap Capture');
+      return;
+    }
+
     tickRef.current = setInterval(async () => {
       if (capturingRef.current || !cameraRef.current) return;
       try {
@@ -165,29 +186,26 @@ function FaceEnrollModal({
         setFaceDetected(found);
         setStatusMsg(found ? 'Face detected — tap Capture' : 'Position your face in the oval');
       } catch { /* frame skip */ }
-    }, 900); // 900ms — slow enough to not block the Capture tap
+    }, 900);
   }, [stopTick]);
 
-  // Start/stop based on visibility + permission
   useEffect(() => {
     if (visible && permission?.granted) {
-      const t = setTimeout(() => startTick(), 700); // wait for camera to mount
+      const t = setTimeout(() => startTick(), 700); 
       return () => { clearTimeout(t); stopTick(); };
     }
     return () => stopTick();
   }, [visible, permission?.granted, startTick, stopTick]);
 
-  // Reset state on open
   useEffect(() => {
     if (visible) {
-      setFaceDetected(false);
+      setFaceDetected(Platform.OS === 'web');
       setIsCapturing(false);
       capturingRef.current = false;
-      setStatusMsg('Position your face in the oval');
+      setStatusMsg(Platform.OS === 'web' ? 'Web Mode: Position face & tap Capture' : 'Position your face in the oval');
     }
   }, [visible]);
 
-  // ── Capture: take hi-res photo → detect → build descriptor ─
   const handleCapture = async () => {
     if (capturingRef.current || !cameraRef.current) return;
     capturingRef.current = true;
@@ -201,7 +219,48 @@ function FaceEnrollModal({
       });
       if (!photo?.uri) throw new Error('Camera returned no photo URI');
 
-      // Run accurate detection on hi-res photo
+      // ====== WEB MODE: Use @vladmandic/human for proper 1024 embeddings ======
+      if (Platform.OS === 'web') {
+        try {
+          const human = await getWebHuman();
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.src = photo.uri;
+          await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+          
+          const result = await human.detect(img);
+          if (!result?.face?.length) {
+            Alert.alert(
+              'No Face Detected',
+              'Ensure your face is fully visible and well-lit, then try again.',
+              [{ text: 'Retry', onPress: () => {
+                capturingRef.current = false;
+                setIsCapturing(false);
+                setFaceDetected(Platform.OS === 'web');
+                setStatusMsg('Web Mode: Position face & tap Capture');
+                startTick();
+              }}]
+            );
+            return;
+          }
+
+          // CHANGED: Explicitly cast and map the array so TypeScript knows it is an array of numbers
+          const embedding: number[] = Array.from(result.face[0].embedding as number[]).map(Number);
+          
+          onEnrolled({ landmarks: embedding, capturedAt: new Date().toISOString() }, photo.uri);
+          onClose();
+        } catch (e: any) {
+          console.error('Web Human Detect Error:', e);
+          Alert.alert('Capture Error', 'Could not process face. Please try again.');
+          capturingRef.current = false;
+          setIsCapturing(false);
+          setStatusMsg('Web Mode: Position face & tap Capture');
+          startTick();
+        }
+        return;
+      }
+
+      // ====== NATIVE MODE: Use ML Kit ======
       const result = await FaceDetector.detectFacesAsync(photo.uri, {
         mode: FaceDetector.FaceDetectorMode.accurate,
         detectLandmarks: FaceDetector.FaceDetectorLandmarks.all,
@@ -231,7 +290,7 @@ function FaceEnrollModal({
       Alert.alert('Capture Error', e?.message ?? 'Could not capture. Please try again.');
       capturingRef.current = false;
       setIsCapturing(false);
-      setStatusMsg('Position your face in the oval');
+      setStatusMsg(Platform.OS === 'web' ? 'Web Mode: Position face & tap Capture' : 'Position your face in the oval');
       startTick();
     }
   };
@@ -241,8 +300,6 @@ function FaceEnrollModal({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={s.enrollRoot}>
-
-        {/* Camera fills full screen */}
         {permission?.granted && (
           <CameraView
             ref={cameraRef}
@@ -250,11 +307,7 @@ function FaceEnrollModal({
             facing="front"
           />
         )}
-
-        {/* UI overlay */}
         <View style={s.enrollOverlay}>
-
-          {/* Header */}
           <View style={s.enrollHeader}>
             <Pressable onPress={onClose} style={s.enrollCloseBtn}>
               <Ionicons name="close" size={22} color="#374151" />
@@ -262,8 +315,6 @@ function FaceEnrollModal({
             <Text style={s.enrollTitle}>Enroll Face</Text>
             <View style={{ width: 36 }} />
           </View>
-
-          {/* Permission denied */}
           {!permission?.granted ? (
             <View style={s.enrollCenter}>
               <Ionicons name="camera-outline" size={48} color="#9CA3AF" />
@@ -274,15 +325,12 @@ function FaceEnrollModal({
             </View>
           ) : (
             <>
-              {/* Oval guide */}
               <View style={s.enrollOvalWrap} pointerEvents="none">
                 <View style={[
                   s.enrollOval,
                   { borderColor: faceDetected ? '#22C55E' : 'rgba(255,255,255,0.6)' },
                 ]} />
               </View>
-
-              {/* Status pill */}
               <View style={s.enrollStatusWrap}>
                 <View style={[
                   s.enrollStatusPill,
@@ -295,8 +343,6 @@ function FaceEnrollModal({
                   <Text style={s.enrollStatusTxt}>{statusMsg}</Text>
                 </View>
               </View>
-
-              {/* Capture button — always tappable, never gated by faceDetected */}
               <View style={s.enrollFooter}>
                 <Pressable
                   style={[s.captureBtn, isCapturing && s.captureBtnLoading]}
@@ -328,7 +374,7 @@ function FaceEnrollModal({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Main Add/Edit Worker Screen  (unchanged from previous version)
+// Main Add/Edit Worker Screen
 // ─────────────────────────────────────────────────────────────
 export default function AddWorkerScreen() {
   const router = useRouter();
@@ -421,7 +467,9 @@ export default function AddWorkerScreen() {
       const path     = `workers/${profile.tenantId}/${workerId}/face.jpg`;
       const response = await fetch(photoUri);
       const blob     = await response.blob();
-      const sRef     = storageRef(getStorage(), path);
+      
+      const sRef     = storageRef(storage, path);
+      
       await uploadBytes(sRef, blob, { contentType: 'image/jpeg' });
       const url = await getDownloadURL(sRef);
       setFacePhotoUrl(url);
@@ -450,7 +498,7 @@ export default function AddWorkerScreen() {
     if (!profile?.tenantId) return;
     setSaving(true);
     try {
-      let finalPhotoUrl   = facePhotoUrl ?? form.photoUrl;
+      let finalPhotoUrl   = facePhotoUrl ?? form.photoUrl ?? null;
       let finalDescriptor = faceDescriptor ?? (form as any).faceDescriptor ?? null;
 
       if (faceCapturedUri && !facePhotoUrl) {
@@ -459,7 +507,8 @@ export default function AddWorkerScreen() {
           const path     = `workers/${profile.tenantId}/${workerId}/face.jpg`;
           const response = await fetch(faceCapturedUri);
           const blob     = await response.blob();
-          const sRef     = storageRef(getStorage(), path);
+          const sRef     = storageRef(storage, path);
+          
           await uploadBytes(sRef, blob, { contentType: 'image/jpeg' });
           finalPhotoUrl  = await getDownloadURL(sRef);
         } catch { /* best effort */ }
@@ -474,6 +523,19 @@ export default function AddWorkerScreen() {
       };
       if (!isLeaveOverride) delete workerData.leaveBalances;
 
+      Object.keys(workerData).forEach(key => {
+        if (workerData[key] === undefined) {
+          delete workerData[key];
+        }
+      });
+      if (workerData.wageConfig) {
+        Object.keys(workerData.wageConfig).forEach(key => {
+          if (workerData.wageConfig[key] === undefined) {
+            delete workerData.wageConfig[key];
+          }
+        });
+      }
+      
       if (isEditing && params.workerId) {
         await dbService.updateWorker(params.workerId, workerData);
       } else {
@@ -487,6 +549,7 @@ export default function AddWorkerScreen() {
       }
       router.back();
     } catch (e: any) {
+      console.error("Save Error:", e);
       Alert.alert('Save Failed', e.message ?? 'Please try again.');
     } finally {
       setSaving(false);

@@ -70,7 +70,7 @@ const playSound = (type: 'SUCCESS' | 'ERROR') => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Types
+// Types & Helpers
 // ─────────────────────────────────────────────────────────────
 type LivenessState = 'SCANNING' | 'CHALLENGE';
 type Phase = 'IDLE' | 'SUCCESS' | 'ERROR' | 'COOLDOWN' | 'OFFLINE';
@@ -79,16 +79,25 @@ interface RecentPunch {
   name: string; type: 'IN' | 'OUT'; time: Date;
 }
 
+// Safely extract landmarks regardless of how Firebase stored it
+const getLandmarks = (w: any): number[] => {
+  const fd = w.faceDescriptor;
+  if (!fd) return [];
+  if (Array.isArray(fd)) return fd;
+  if (typeof fd === 'object' && Array.isArray(fd.landmarks)) return fd.landmarks;
+  return [];
+};
+
 // ─────────────────────────────────────────────────────────────
 // Main Web Kiosk — ADMIN SESSION (no pairing / AsyncStorage)
 // ─────────────────────────────────────────────────────────────
 export default function KioskWebScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ branchId?: string }>();
-  const { profile, orgSettings: authOrgSettings } = useAuth();
+  
+  // CHANGED: Removed orgSettings from useAuth to fix TS error
+  const { profile } = useAuth();
 
-  // Derive everything from the logged-in profile + route param
-  // No AsyncStorage, no kiosk_config needed
   const tenantId  = profile?.tenantId ?? '';
   const branchId  = (params.branchId as string) ?? 'default';
 
@@ -133,13 +142,12 @@ export default function KioskWebScreen() {
     }
   }, [tenantId]);
 
-  // ── Load workers + settings (uses profile, not kiosk_config) ──
+  // ── Load workers + settings ────────────────────────────────
   useEffect(() => {
     if (!tenantId) return;
     const init = async () => {
       try {
         setFeedback('Loading AI models...');
-        // Load human models and workers in parallel
         const [fetchedWorkers, fetchedSettings] = await Promise.all([
           dbService.getWorkers(tenantId),
           dbService.getOrgSettings(tenantId),
@@ -147,14 +155,14 @@ export default function KioskWebScreen() {
         ]);
 
         const branchWorkers = fetchedWorkers
-          .map((w) => {
-            let fd = (w as any).faceDescriptor;
-            if (fd && typeof fd === 'object' && !Array.isArray(fd)) fd = Object.values(fd) as number[];
-            return { ...w, faceDescriptor: fd };
-          })
+          .map((w) => ({
+            ...w,
+            faceDescriptor: getLandmarks(w)
+          }))
           .filter((w) =>
             (branchId === 'default' || (w.branchId ?? 'default') === branchId) &&
-            w.status === 'ACTIVE'
+            w.status === 'ACTIVE' &&
+            (w as any).faceDescriptor.length > 0
           );
 
         workersRef.current  = branchWorkers;
@@ -163,7 +171,7 @@ export default function KioskWebScreen() {
         setSettings(fetchedSettings);
         setWorkersLoaded(true);
         setFeedback(
-          `Ready · ${branchWorkers.filter((w) => (w as any).faceDescriptor?.length > 0).length} faces loaded`
+          `Ready · ${branchWorkers.length} faces loaded`
         );
       } catch (e) {
         console.error('Init error:', e);
@@ -172,7 +180,6 @@ export default function KioskWebScreen() {
     };
     init();
 
-    // Camera
     navigator.mediaDevices
       .getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
       .then((stream) => {
@@ -231,9 +238,13 @@ export default function KioskWebScreen() {
 
         let bestMatch: Worker | null = null;
         let bestScore = 0;
+        
         for (const w of workersRef.current) {
           const fd = (w as any).faceDescriptor;
-          if (!fd?.length) continue;
+          if (!fd || !Array.isArray(fd) || !fd.length) continue;
+          
+          if (fd.length !== embedding.length) continue; 
+          
           const score = human.match.similarity(embedding, fd);
           if (score > bestScore) { bestScore = score; bestMatch = w; }
         }
@@ -343,7 +354,6 @@ export default function KioskWebScreen() {
         workerId: worker.id,
         workerName: worker.name,
         branchId,
-        // No terminalId — this is admin-session mode, not a dedicated terminal
         terminalId: 'admin-session',
         punchType,
         timestamp: now.toISOString(),
@@ -422,8 +432,9 @@ export default function KioskWebScreen() {
     : livenessState === 'CHALLENGE'              ? 'rgba(109,40,217,0.9)'
     : 'rgba(0,0,0,0.6)';
 
+  // CHANGED: Use settings state instead of authOrgSettings
   const branchLabel =
-    authOrgSettings?.branches?.find((b: any) => b.id === branchId)?.name
+    settings?.branches?.find((b: any) => b.id === branchId)?.name
     ?? (branchId === 'default' ? 'All Branches' : branchId);
 
   // ─────────────────────────────────────────────────────────
@@ -579,7 +590,7 @@ const css: Record<string, React.CSSProperties> = {
   successBadgeTxt:{ fontSize: 14, fontWeight: 800 },
   successTime:    { fontSize: 14, color: '#6B7280', fontWeight: 600, margin: 0 },
 
-  // Exit button — simple back button (no PIN for admin session)
+  // Exit button
   exitBtn:        { position: 'absolute', bottom: 20, left: 20, background: 'rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 20, padding: '8px 18px', fontSize: 12, fontWeight: 700, cursor: 'pointer' },
 
   // Activity pane
