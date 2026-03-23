@@ -76,14 +76,14 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Kiosk branch modal
+  // ── Kiosk branch modal (admin-session kiosk) ──────────────
   const [showKioskModal, setShowKioskModal] = useState(false);
   const [selectedKioskBranch, setSelectedKioskBranch] = useState<string>('default');
 
-  // Branch filter modal (for mobile, since no <select>)
+  // ── Branch filter modal ───────────────────────────────────
   const [showBranchModal, setShowBranchModal] = useState(false);
 
-  // ── Data Fetch + Stats Calculation ──────────────────────────
+  // ── Data Fetch + Stats Calculation ───────────────────────
   const refreshData = useCallback(async (isManual = false) => {
     if (!profile?.tenantId) return;
     if (isManual) setRefreshing(true);
@@ -126,7 +126,7 @@ export default function DashboardScreen() {
             : null;
         const isCurrentlyIn = lastPunch?.type === 'IN';
 
-        // Late detection — same as original DashboardScreen
+        // Late detection
         let isLate = false;
         const shift =
           settings.shifts.find((s: any) => s.id === record.shiftId) ||
@@ -145,7 +145,7 @@ export default function DashboardScreen() {
           isLate = diffMins > (shift.gracePeriodMins || 15);
         }
 
-        // Status computation — same logic as original
+        // Status computation
         let computedStatus = 'ABSENT';
         if (record.status === 'ON_LEAVE') {
           computedStatus = 'ON_LEAVE';
@@ -170,7 +170,6 @@ export default function DashboardScreen() {
         };
       });
 
-      // Count statuses
       processedActivity.forEach((r) => {
         if (r.computedStatus === 'PRESENT') presentCount++;
         else if (r.computedStatus === 'HALF_DAY') halfDayCount++;
@@ -191,7 +190,6 @@ export default function DashboardScreen() {
         onLeave: onLeaveCount,
       });
 
-      // Sort by most recent punch first
       const sorted = [...processedActivity].sort((a, b) => {
         const getTime = (r: ActivityRow) =>
           r.timeline?.length > 0
@@ -211,16 +209,21 @@ export default function DashboardScreen() {
 
   useEffect(() => { refreshData(); }, [refreshData]);
 
-  // ── Kiosk Launch Handler ─────────────────────────────────
+  // ── Kiosk Launch — routes to ADMIN-SESSION kiosk ─────────
+  // Never routes to /kiosk (that is dedicated terminal only).
+  // Mirrors original: onOpenKiosk(branchId) → ATTENDANCE_KIOSK screen
   const handleKioskLaunch = () => {
     const branches = orgSettings?.branches || [];
     if (branches.length > 1) {
-      setSelectedKioskBranch(branches[0].id);
+      // Multiple branches → show branch picker modal first
+      setSelectedKioskBranch(branches[0]?.id || 'default');
       setShowKioskModal(true);
     } else {
+      // Single branch → launch directly
+      const branchId = branches[0]?.id || 'default';
       router.push({
         pathname: '/(admin)/attendance/kiosk' as any,
-        params: { branchId: branches[0]?.id || 'default' },
+        params: { branchId },
       });
     }
   };
@@ -229,17 +232,17 @@ export default function DashboardScreen() {
     setShowKioskModal(false);
     router.push({
       pathname: '/(admin)/attendance/kiosk' as any,
-      params: { branchId: selectedKioskBranch },
+      params: { branchId: selectedKioskBranch || 'default' },
     });
   };
 
-  // ── Selected branch display name ─────────────────────────
+  // ── Selected branch display name ──────────────────────────
   const selectedBranchName =
     selectedDashboardBranch === 'ALL'
       ? 'All Branches'
       : orgSettings?.branches?.find((b: any) => b.id === selectedDashboardBranch)?.name ?? 'All';
 
-  // ── Render ───────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────
   return (
     <>
       <ScrollView
@@ -255,14 +258,13 @@ export default function DashboardScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Header ── */}
+        {/* ── Header ───────────────────────────────────────── */}
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>Dashboard</Text>
             <Text style={styles.headerSub}>{profile?.companyName ?? 'Overview'}</Text>
           </View>
           <View style={styles.headerActions}>
-            {/* Branch filter — show only if multi-branch */}
             {(orgSettings?.branches?.length ?? 0) > 1 && (
               <Pressable
                 style={styles.branchPicker}
@@ -275,24 +277,26 @@ export default function DashboardScreen() {
                 <Ionicons name="chevron-down" size={13} color="#6B7280" />
               </Pressable>
             )}
-            {/* Refresh button */}
             <Pressable
               style={styles.refreshBtn}
               onPress={() => refreshData(true)}
             >
               {loading && !refreshing
                 ? <ActivityIndicator size={16} color="#4F46E5" />
-                : <Ionicons
+                : (
+                  <Ionicons
                     name="refresh-outline"
                     size={18}
                     color={loading ? '#4F46E5' : '#6B7280'}
                   />
-              }
+                )}
             </Pressable>
           </View>
         </View>
 
-        {/* ── Kiosk Launch Banner ── */}
+        {/* ── Kiosk Launch Banner ───────────────────────────── */}
+        {/* Tapping this opens the admin-session camera kiosk  */}
+        {/* (no pairing code needed — uses logged-in profile)  */}
         {limits?.kioskEnabled !== false ? (
           <Pressable style={styles.kioskBanner} onPress={handleKioskLaunch}>
             <View style={styles.kioskBannerLeft}>
@@ -318,7 +322,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* ── 2×2 Stat Cards ── */}
+        {/* ── 2×2 Stat Cards ───────────────────────────────── */}
         <View style={styles.statsGrid}>
           <StatCard
             iconName="checkmark-circle-outline"
@@ -354,7 +358,7 @@ export default function DashboardScreen() {
           />
         </View>
 
-        {/* ── Live Activity ── */}
+        {/* ── Live Activity ─────────────────────────────────── */}
         <View style={styles.activityCard}>
           <View style={styles.activityHeader}>
             <View style={styles.activityTitleRow}>
@@ -424,7 +428,6 @@ export default function DashboardScreen() {
                           </View>
                         )}
                       </View>
-                      {/* Status badge */}
                       <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
                         <Text style={[styles.statusBadgeText, { color: badge.color }]}>
                           {badge.text}
@@ -439,7 +442,8 @@ export default function DashboardScreen() {
         </View>
       </ScrollView>
 
-      {/* ── Kiosk Branch Select Modal ── */}
+      {/* ── Kiosk Branch Select Modal ─────────────────────────── */}
+      {/* Shown only when org has multiple branches              */}
       <Modal
         visible={showKioskModal}
         transparent
@@ -499,7 +503,7 @@ export default function DashboardScreen() {
         </View>
       </Modal>
 
-      {/* ── Branch Filter Modal (mobile picker replacement) ── */}
+      {/* ── Branch Filter Modal ───────────────────────────────── */}
       <Modal
         visible={showBranchModal}
         transparent
@@ -510,38 +514,39 @@ export default function DashboardScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Filter by Branch</Text>
             <View style={styles.branchList}>
-              {[{ id: 'ALL', name: 'All Branches' }, ...(orgSettings?.branches ?? [])].map(
-                (b: any) => {
-                  const isSelected = selectedDashboardBranch === b.id;
-                  return (
-                    <Pressable
-                      key={b.id}
+              {[
+                { id: 'ALL', name: 'All Branches' },
+                ...(orgSettings?.branches ?? []),
+              ].map((b: any) => {
+                const isSelected = selectedDashboardBranch === b.id;
+                return (
+                  <Pressable
+                    key={b.id}
+                    style={[
+                      styles.branchOption,
+                      isSelected && styles.branchOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setSelectedDashboardBranch(b.id);
+                      setShowBranchModal(false);
+                    }}
+                  >
+                    <Ionicons
+                      name="git-branch-outline"
+                      size={15}
+                      color={isSelected ? '#4F46E5' : '#9CA3AF'}
+                    />
+                    <Text
                       style={[
-                        styles.branchOption,
-                        isSelected && styles.branchOptionSelected,
+                        styles.branchOptionText,
+                        isSelected && styles.branchOptionTextSelected,
                       ]}
-                      onPress={() => {
-                        setSelectedDashboardBranch(b.id);
-                        setShowBranchModal(false);
-                      }}
                     >
-                      <Ionicons
-                        name="git-branch-outline"
-                        size={15}
-                        color={isSelected ? '#4F46E5' : '#9CA3AF'}
-                      />
-                      <Text
-                        style={[
-                          styles.branchOptionText,
-                          isSelected && styles.branchOptionTextSelected,
-                        ]}
-                      >
-                        {b.name}
-                      </Text>
-                    </Pressable>
-                  );
-                }
-              )}
+                      {b.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
             <Pressable
               style={styles.cancelBtn}
@@ -645,7 +650,10 @@ const styles = StyleSheet.create({
   },
   activityTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   activityTitle: { fontSize: 13, fontWeight: '700', color: '#111827' },
-  todayBadge: { backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  todayBadge: {
+    backgroundColor: '#F3F4F6', borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
   todayBadgeText: { fontSize: 10, color: '#6B7280', fontWeight: '500' },
   emptyState: { padding: 40, alignItems: 'center', gap: 8 },
   emptyText: { fontSize: 12, color: '#9CA3AF' },
@@ -667,18 +675,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
   workerName: { fontSize: 13, fontWeight: '700', color: '#111827', flex: 1 },
-  hoursText: { fontSize: 12, fontWeight: '600', color: '#6B7280', fontVariant: ['tabular-nums'] },
+  hoursText: {
+    fontSize: 12, fontWeight: '600', color: '#6B7280',
+    fontVariant: ['tabular-nums'],
+  },
   activityBottomRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginTop: 3,
   },
   activityMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 },
   punchTime: { fontSize: 10, color: '#9CA3AF' },
-  lateBadge: { backgroundColor: '#FEE2E2', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
+  lateBadge: {
+    backgroundColor: '#FEE2E2', borderRadius: 4,
+    paddingHorizontal: 5, paddingVertical: 1,
+  },
   lateBadgeText: { fontSize: 9, fontWeight: '700', color: '#DC2626' },
   zoneBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 2,
-    backgroundColor: '#FFF7ED', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1,
+    backgroundColor: '#FFF7ED', borderRadius: 4,
+    paddingHorizontal: 5, paddingVertical: 1,
   },
   zoneBadgeText: { fontSize: 9, fontWeight: '700', color: '#C2410C' },
   statusBadge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
