@@ -1,15 +1,25 @@
 // app/(admin)/attendance/index.tsx
 import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet,
+  View, Text, Pressable, StyleSheet,
   RefreshControl, ActivityIndicator, Modal, Alert,
   TextInput, ScrollView,
 } from 'react-native';
+import { FlatList as RNFlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { dbService } from '../../../src/services/db';
 import { attendanceLogic } from '../../../src/services/attendanceLogic';
 import { Worker, AttendanceRecord, OrgSettings, Punch } from '../../../src/types/index';
+
+// ─────────────────────────────────────────────────────────────
+// SafeFlatList — bypasses react-native-css-interop JSX wrapper
+// that injects columnWrapperStyle on single-column lists (web crash)
+// ─────────────────────────────────────────────────────────────
+function SafeFlatList<T>(props: React.ComponentProps<typeof RNFlatList<T>>) {
+  const { columnWrapperStyle: _dropped, ...safeProps } = props as any;
+  return React.createElement(RNFlatList, safeProps);
+}
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -521,10 +531,13 @@ export default function AttendanceScreen() {
           <ActivityIndicator size="large" color="#4F46E5" />
         </View>
       ) : (
-        <FlatList
+        // ✅ FIX: SafeFlatList replaces FlatList — strips columnWrapperStyle
+        //    injected by react-native-css-interop on web single-column lists
+        <SafeFlatList
           data={filteredWorkers}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item: Worker) => item.id}
           renderItem={renderItem}
+          numColumns={1}
           ListHeaderComponent={ListHeader}
           ListEmptyComponent={renderEmpty}
           refreshControl={

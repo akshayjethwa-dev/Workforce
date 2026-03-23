@@ -4,13 +4,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ActivityIndicator,
-  FlatList, Modal, TextInput, Alert, KeyboardAvoidingView,
+  Modal, TextInput, Alert, KeyboardAvoidingView,
   Platform, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth }   from './../../src/contexts/AuthContext';
 import { dbService } from './../../src/services/db';
+
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -32,6 +33,7 @@ interface Branch {
   name: string;
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────
@@ -48,6 +50,7 @@ const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; ic
 };
 
 const ROLES: TeamRole[] = ['SUPERVISOR', 'VIEWER'];
+
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -67,6 +70,7 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Role Badge
 // ─────────────────────────────────────────────────────────────
@@ -79,6 +83,7 @@ function RoleBadge({ role }: { role: string }) {
     </View>
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // Team Member Card
@@ -95,7 +100,6 @@ function TeamMemberCard({
 
   return (
     <View style={mc.card}>
-      {/* Avatar + info */}
       <View style={mc.left}>
         <View style={[mc.avatar, { backgroundColor: bg }]}>
           <Text style={mc.avatarTxt}>{initials}</Text>
@@ -123,8 +127,6 @@ function TeamMemberCard({
           )}
         </View>
       </View>
-
-      {/* Remove button */}
       <Pressable
         style={[mc.removeBtn, isRemoving && { opacity: 0.4 }]}
         onPress={onRemove}
@@ -139,6 +141,7 @@ function TeamMemberCard({
     </View>
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // Pending Invite Card
@@ -189,6 +192,7 @@ function PendingInviteCard({
   );
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Invite Modal
 // ─────────────────────────────────────────────────────────────
@@ -212,7 +216,7 @@ function InviteModal({
 
   const handleSubmit = async () => {
     const errs: { email?: string } = {};
-    if (!email.trim())          errs.email = 'Email is required.';
+    if (!email.trim())             errs.email = 'Email is required.';
     else if (!isValidEmail(email)) errs.email = 'Enter a valid email address.';
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
@@ -269,7 +273,7 @@ function InviteModal({
               <Text style={inv.label}>Role <Text style={inv.required}>*</Text></Text>
               <View style={inv.roleRow}>
                 {ROLES.map((r) => {
-                  const cfg     = ROLE_CONFIG[r];
+                  const cfg      = ROLE_CONFIG[r];
                   const isActive = role === r;
                   return (
                     <Pressable
@@ -373,6 +377,7 @@ function InviteModal({
   );
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Main Screen
 // ─────────────────────────────────────────────────────────────
@@ -380,15 +385,15 @@ export default function TeamScreen() {
   const { profile } = useAuth();
   const router      = useRouter();
 
-  const [members,      setMembers]      = useState<TeamMember[]>([]);
-  const [invites,      setInvites]      = useState<any[]>([]);
-  const [branches,     setBranches]     = useState<Branch[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState<string | null>(null);
-  const [showInvite,   setShowInvite]   = useState(false);
-  const [submitting,   setSubmitting]   = useState(false);
-  const [removingUid,  setRemovingUid]  = useState<string | null>(null);
-  const [revokingEmail,setRevokingEmail]= useState<string | null>(null);
+  const [members,       setMembers]       = useState<TeamMember[]>([]);
+  const [invites,       setInvites]       = useState<any[]>([]);
+  const [branches,      setBranches]      = useState<Branch[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState<string | null>(null);
+  const [showInvite,    setShowInvite]    = useState(false);
+  const [submitting,    setSubmitting]    = useState(false);
+  const [removingUid,   setRemovingUid]   = useState<string | null>(null);
+  const [revokingEmail, setRevokingEmail] = useState<string | null>(null);
 
   // ── Fetch ────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -401,7 +406,6 @@ export default function TeamScreen() {
         dbService.getOrgSettings(profile.tenantId),
       ]);
 
-      // Normalise member shape
       const normalised: TeamMember[] = teamData.map((u: any) => ({
         uid:       u.uid ?? u.id ?? '',
         name:      u.name ?? u.displayName ?? '',
@@ -414,8 +418,6 @@ export default function TeamScreen() {
 
       setMembers(normalised);
       setBranches(settings.branches ?? []);
-
-      // Fetch pending invites for this tenant
       await fetchInvites();
     } catch (err: any) {
       setError('Failed to load team data.');
@@ -428,7 +430,6 @@ export default function TeamScreen() {
   const fetchInvites = useCallback(async () => {
     if (!profile?.tenantId) return;
     try {
-      // getTeamInvites reads "invites" collection filtered by tenantId
       const snap = await (dbService as any).getTeamInvites?.(profile.tenantId) ?? [];
       setInvites(snap);
     } catch {
@@ -439,15 +440,10 @@ export default function TeamScreen() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // ── Invite submit ────────────────────────────────────────
-  const handleInvite = async (
-    email:  string,
-    role:   TeamRole,
-    branch: string,
-  ) => {
+  const handleInvite = async (email: string, role: TeamRole, branch: string) => {
     if (!profile?.tenantId) return;
     setSubmitting(true);
     try {
-      // Check if already a member
       if (members.some((m) => m.email.toLowerCase() === email)) {
         Alert.alert('Already a member', `${email} is already in your team.`);
         return;
@@ -455,7 +451,6 @@ export default function TeamScreen() {
 
       await dbService.inviteManager(profile.tenantId, email, email.split('@')[0]);
 
-      // Also write role + branch to the invite doc
       const { db } = await import('./../../src/lib/firebase');
       await (db as any)
         .collection('invites')
@@ -527,9 +522,7 @@ export default function TeamScreen() {
     );
   };
 
-  // ─────────────────────────────────────────────────────────
-  // Stats bar
-  // ─────────────────────────────────────────────────────────
+  // ── Stats ────────────────────────────────────────────────
   const supervisorCount = members.filter((m) => m.role === 'SUPERVISOR').length;
   const viewerCount     = members.filter((m) => m.role === 'VIEWER').length;
 
@@ -575,144 +568,142 @@ export default function TeamScreen() {
           <Text style={s.loadingTxt}>Loading team…</Text>
         </View>
       ) : (
-        <FlatList
-          data={[]}               // dummy — all content in header
-          keyExtractor={() => ''}
-          renderItem={null}
+        <ScrollView
+          style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={() => (
-            <View style={{ paddingBottom: 40 }}>
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={{ paddingBottom: 40 }}>
 
-              {/* ── Stats bar ── */}
-              <View style={s.statsRow}>
-                {[
-                  { label: 'Members',    value: members.length,   color: BRAND.primary, icon: 'people-outline'           },
-                  { label: 'Supervisors',value: supervisorCount,  color: '#2563EB',     icon: 'shield-checkmark-outline' },
-                  { label: 'Viewers',    value: viewerCount,      color: '#6B7280',     icon: 'eye-outline'              },
-                  { label: 'Pending',    value: invites.length,   color: '#D97706',     icon: 'time-outline'             },
-                ].map((stat) => (
-                  <View key={stat.label} style={s.statChip}>
-                    <Ionicons name={stat.icon as any} size={16} color={stat.color} />
-                    <Text style={[s.statVal, { color: stat.color }]}>{stat.value}</Text>
-                    <Text style={s.statLbl}>{stat.label}</Text>
-                  </View>
-                ))}
+            {/* ── Stats bar ── */}
+            <View style={s.statsRow}>
+              {[
+                { label: 'Members',     value: members.length,  color: BRAND.primary, icon: 'people-outline'           },
+                { label: 'Supervisors', value: supervisorCount, color: '#2563EB',     icon: 'shield-checkmark-outline' },
+                { label: 'Viewers',     value: viewerCount,     color: '#6B7280',     icon: 'eye-outline'              },
+                { label: 'Pending',     value: invites.length,  color: '#D97706',     icon: 'time-outline'             },
+              ].map((stat) => (
+                <View key={stat.label} style={s.statChip}>
+                  <Ionicons name={stat.icon as any} size={16} color={stat.color} />
+                  <Text style={[s.statVal, { color: stat.color }]}>{stat.value}</Text>
+                  <Text style={s.statLbl}>{stat.label}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* ── Invite button ── */}
+            <Pressable style={s.inviteBtn} onPress={() => setShowInvite(true)}>
+              <View style={s.inviteBtnIcon}>
+                <Ionicons name="person-add-outline" size={20} color={BRAND.primary} />
               </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.inviteBtnTxt}>Invite Team Member</Text>
+                <Text style={s.inviteBtnSub}>Add a supervisor or viewer to your workspace</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={BRAND.primary} />
+            </Pressable>
 
-              {/* ── Invite button ── */}
-              <Pressable style={s.inviteBtn} onPress={() => setShowInvite(true)}>
-                <View style={s.inviteBtnIcon}>
-                  <Ionicons name="person-add-outline" size={20} color={BRAND.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.inviteBtnTxt}>Invite Team Member</Text>
-                  <Text style={s.inviteBtnSub}>Add a supervisor or viewer to your workspace</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={BRAND.primary} />
-              </Pressable>
-
-              {/* ── Active members ── */}
-              {members.length > 0 && (
-                <View style={s.section}>
-                  <View style={s.sectionHeader}>
-                    <Ionicons name="people-outline" size={14} color={BRAND.primary} />
-                    <Text style={s.sectionTitle}>Active Members</Text>
-                    <View style={s.sectionBadge}>
-                      <Text style={s.sectionBadgeTxt}>{members.length}</Text>
-                    </View>
-                  </View>
-                  {members.map((m) => (
-                    <TeamMemberCard
-                      key={m.uid}
-                      member={m}
-                      onRemove={() => handleRemove(m)}
-                      isRemoving={removingUid === m.uid}
-                    />
-                  ))}
-                </View>
-              )}
-
-              {/* ── Pending invites ── */}
-              {invites.length > 0 && (
-                <View style={s.section}>
-                  <View style={s.sectionHeader}>
-                    <Ionicons name="time-outline" size={14} color="#D97706" />
-                    <Text style={[s.sectionTitle, { color: '#D97706' }]}>Pending Invites</Text>
-                    <View style={[s.sectionBadge, { backgroundColor: '#FEF3C7' }]}>
-                      <Text style={[s.sectionBadgeTxt, { color: '#D97706' }]}>{invites.length}</Text>
-                    </View>
-                  </View>
-                  {invites.map((inv) => (
-                    <PendingInviteCard
-                      key={inv.email}
-                      invite={inv}
-                      onRevoke={() => handleRevokeInvite(inv.email)}
-                      isRevoking={revokingEmail === inv.email}
-                    />
-                  ))}
-                </View>
-              )}
-
-              {/* ── Empty state ── */}
-              {members.length === 0 && invites.length === 0 && (
-                <View style={s.emptyState}>
-                  <View style={s.emptyIconWrap}>
-                    <Ionicons name="people-outline" size={40} color={BRAND.primary} />
-                  </View>
-                  <Text style={s.emptyTitle}>No team members yet</Text>
-                  <Text style={s.emptySub}>
-                    Invite supervisors or viewers to help manage your workforce.
-                  </Text>
-                  <Pressable style={s.emptyBtn} onPress={() => setShowInvite(true)}>
-                    <Ionicons name="person-add-outline" size={16} color="#fff" />
-                    <Text style={s.emptyBtnTxt}>Invite First Member</Text>
-                  </Pressable>
-                </View>
-              )}
-
-              {/* ── Role info cards ── */}
+            {/* ── Active members ── */}
+            {members.length > 0 && (
               <View style={s.section}>
                 <View style={s.sectionHeader}>
-                  <Ionicons name="information-circle-outline" size={14} color="#6B7280" />
-                  <Text style={[s.sectionTitle, { color: '#6B7280' }]}>Role Permissions</Text>
+                  <Ionicons name="people-outline" size={14} color={BRAND.primary} />
+                  <Text style={s.sectionTitle}>Active Members</Text>
+                  <View style={s.sectionBadge}>
+                    <Text style={s.sectionBadgeTxt}>{members.length}</Text>
+                  </View>
                 </View>
-                {[
-                  {
-                    role:  'SUPERVISOR',
-                    perms: ['Mark & manage attendance','View reports & payroll','Manage workers in branch','Cannot change billing or settings'],
-                  },
-                  {
-                    role:  'VIEWER',
-                    perms: ['View attendance records','View reports (read-only)','Cannot mark attendance','Cannot make any changes'],
-                  },
-                ].map((item) => {
-                  const cfg = ROLE_CONFIG[item.role];
-                  return (
-                    <View key={item.role} style={[s.roleInfoCard, { borderLeftColor: cfg.color }]}>
-                      <View style={s.roleInfoHeader}>
-                        <Ionicons name={cfg.icon as any} size={16} color={cfg.color} />
-                        <Text style={[s.roleInfoTitle, { color: cfg.color }]}>{cfg.label}</Text>
-                      </View>
-                      {item.perms.map((p) => (
-                        <View key={p} style={s.permRow}>
-                          <Ionicons
-                            name={p.startsWith('Cannot') ? 'close-circle-outline' : 'checkmark-circle-outline'}
-                            size={13}
-                            color={p.startsWith('Cannot') ? '#9CA3AF' : '#16A34A'}
-                          />
-                          <Text style={[s.permTxt, p.startsWith('Cannot') && { color: '#9CA3AF' }]}>
-                            {p}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  );
-                })}
+                {members.map((m) => (
+                  <TeamMemberCard
+                    key={m.uid}
+                    member={m}
+                    onRemove={() => handleRemove(m)}
+                    isRemoving={removingUid === m.uid}
+                  />
+                ))}
               </View>
+            )}
 
+            {/* ── Pending invites ── */}
+            {invites.length > 0 && (
+              <View style={s.section}>
+                <View style={s.sectionHeader}>
+                  <Ionicons name="time-outline" size={14} color="#D97706" />
+                  <Text style={[s.sectionTitle, { color: '#D97706' }]}>Pending Invites</Text>
+                  <View style={[s.sectionBadge, { backgroundColor: '#FEF3C7' }]}>
+                    <Text style={[s.sectionBadgeTxt, { color: '#D97706' }]}>{invites.length}</Text>
+                  </View>
+                </View>
+                {invites.map((inv) => (
+                  <PendingInviteCard
+                    key={inv.email}
+                    invite={inv}
+                    onRevoke={() => handleRevokeInvite(inv.email)}
+                    isRevoking={revokingEmail === inv.email}
+                  />
+                ))}
+              </View>
+            )}
+
+            {/* ── Empty state ── */}
+            {members.length === 0 && invites.length === 0 && (
+              <View style={s.emptyState}>
+                <View style={s.emptyIconWrap}>
+                  <Ionicons name="people-outline" size={40} color={BRAND.primary} />
+                </View>
+                <Text style={s.emptyTitle}>No team members yet</Text>
+                <Text style={s.emptySub}>
+                  Invite supervisors or viewers to help manage your workforce.
+                </Text>
+                <Pressable style={s.emptyBtn} onPress={() => setShowInvite(true)}>
+                  <Ionicons name="person-add-outline" size={16} color="#fff" />
+                  <Text style={s.emptyBtnTxt}>Invite First Member</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* ── Role info cards ── */}
+            <View style={s.section}>
+              <View style={s.sectionHeader}>
+                <Ionicons name="information-circle-outline" size={14} color="#6B7280" />
+                <Text style={[s.sectionTitle, { color: '#6B7280' }]}>Role Permissions</Text>
+              </View>
+              {[
+                {
+                  role:  'SUPERVISOR',
+                  perms: ['Mark & manage attendance', 'View reports & payroll', 'Manage workers in branch', 'Cannot change billing or settings'],
+                },
+                {
+                  role:  'VIEWER',
+                  perms: ['View attendance records', 'View reports (read-only)', 'Cannot mark attendance', 'Cannot make any changes'],
+                },
+              ].map((item) => {
+                const cfg = ROLE_CONFIG[item.role];
+                return (
+                  <View key={item.role} style={[s.roleInfoCard, { borderLeftColor: cfg.color }]}>
+                    <View style={s.roleInfoHeader}>
+                      <Ionicons name={cfg.icon as any} size={16} color={cfg.color} />
+                      <Text style={[s.roleInfoTitle, { color: cfg.color }]}>{cfg.label}</Text>
+                    </View>
+                    {item.perms.map((p) => (
+                      <View key={p} style={s.permRow}>
+                        <Ionicons
+                          name={p.startsWith('Cannot') ? 'close-circle-outline' : 'checkmark-circle-outline'}
+                          size={13}
+                          color={p.startsWith('Cannot') ? '#9CA3AF' : '#16A34A'}
+                        />
+                        <Text style={[s.permTxt, p.startsWith('Cannot') && { color: '#9CA3AF' }]}>
+                          {p}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })}
             </View>
-          )}
-        />
+
+          </View>
+        </ScrollView>
       )}
 
       {/* ── Invite modal ── */}
@@ -727,6 +718,7 @@ export default function TeamScreen() {
   );
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Badge styles
 // ─────────────────────────────────────────────────────────────
@@ -734,6 +726,7 @@ const badge = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   txt:  { fontSize: 10, fontWeight: '800' },
 });
+
 
 // ─────────────────────────────────────────────────────────────
 // Member card styles
@@ -752,6 +745,7 @@ const mc = StyleSheet.create({
   joinedTxt:   { fontSize: 10, color: '#9CA3AF', marginTop: 4 },
   removeBtn:   { width: 36, height: 36, borderRadius: 10, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
 });
+
 
 // ─────────────────────────────────────────────────────────────
 // Invite modal styles
@@ -799,6 +793,7 @@ const inv = StyleSheet.create({
   submitTxt: { fontSize: 15, fontWeight: '800', color: '#fff' },
 });
 
+
 // ─────────────────────────────────────────────────────────────
 // Main styles
 // ─────────────────────────────────────────────────────────────
@@ -827,10 +822,10 @@ const s = StyleSheet.create({
   inviteBtnTxt:  { fontSize: 14, fontWeight: '800', color: BRAND.primary },
   inviteBtnSub:  { fontSize: 11, color: '#6B7280', marginTop: 2 },
 
-  section:      { marginHorizontal: 14, marginTop: 8 },
-  sectionHeader:{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  sectionTitle: { flex: 1, fontSize: 12, fontWeight: '900', color: BRAND.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
-  sectionBadge: { backgroundColor: BRAND.light, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
+  section:        { marginHorizontal: 14, marginTop: 8 },
+  sectionHeader:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  sectionTitle:   { flex: 1, fontSize: 12, fontWeight: '900', color: BRAND.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  sectionBadge:   { backgroundColor: BRAND.light, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
   sectionBadgeTxt:{ fontSize: 11, fontWeight: '800', color: BRAND.primary },
 
   emptyState:   { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32, gap: 12 },

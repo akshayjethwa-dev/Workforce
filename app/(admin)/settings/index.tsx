@@ -1,13 +1,9 @@
 // app/(admin)/settings/index.tsx
-// Task 13: General + Shifts + Departments
-// Task 14: Branches + Geofencing
-// Task 15: Terminals (Kiosk Pairing)
-// Task 16: Calendar + Leaves  ← NEW
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, TextInput,
   Switch, ActivityIndicator, Alert, Animated, Platform,
-  KeyboardAvoidingView, Modal, FlatList,
+  KeyboardAvoidingView, Modal,
 } from 'react-native';
 import { getFirestore, doc, updateDoc } from '@react-native-firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
@@ -802,7 +798,7 @@ function TerminalsTab({ tenantId, limits }: { tenantId: string; limits: any }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ★ NEW — CALENDAR TAB (Task 16)
+// CALENDAR TAB
 // ─────────────────────────────────────────────────────────────
 function CalendarTab({
   settings, setSettings, limits,
@@ -811,7 +807,6 @@ function CalendarTab({
   setSettings: (s: OrgSettings) => void;
   limits: any;
 }) {
-  // ── local state for "Add Holiday" form ───────────────────
   const [newHolidayName, setNewHolidayName] = useState('');
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayPaid, setNewHolidayPaid] = useState<'PAID' | 'UNPAID'>('PAID');
@@ -820,24 +815,20 @@ function CalendarTab({
   const holidays: Holiday[] = (settings.holidays ?? []).slice().sort((a, b) => a.date.localeCompare(b.date));
   const satSelected = weeklyOffs.defaultDays.includes(6);
 
-  // ── Toggle a day on/off ───────────────────────────────────
   const toggleDay = (day: number) => {
     const current = weeklyOffs.defaultDays;
     const updated  = current.includes(day) ? current.filter((d) => d !== day) : [...current, day];
     setSettings({ ...settings, weeklyOffs: { ...weeklyOffs, defaultDays: updated } });
   };
 
-  // ── Saturday rule change ──────────────────────────────────
   const setSatRule = (rule: SaturdayOffType) =>
     setSettings({ ...settings, weeklyOffs: { ...weeklyOffs, saturdayRule: rule } });
 
-  // ── Add holiday ───────────────────────────────────────────
   const addHoliday = () => {
     if (!newHolidayName.trim()) {
       Alert.alert('Missing Name', 'Please enter a holiday name.');
       return;
     }
-    // Validate YYYY-MM-DD
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(newHolidayDate)) {
       Alert.alert('Invalid Date', 'Enter date in YYYY-MM-DD format (e.g. 2026-01-26).');
@@ -855,17 +846,14 @@ function CalendarTab({
     setNewHolidayPaid('PAID');
   };
 
-  // ── Delete holiday ────────────────────────────────────────
   const deleteHoliday = (id: string) =>
     setSettings({ ...settings, holidays: (settings.holidays ?? []).filter((h) => h.id !== id) });
 
   return (
     <View style={{ gap: 20 }}>
-      {/* ── Section 1: Weekly Offs ── */}
       <SectionLabel title="Weekly Offs" />
       <Card>
         <Text style={s.cardSubtitle}>Select which days are automatically marked as weekly off.</Text>
-        {/* Day toggle row */}
         <View style={s.dayRow}>
           {DAYS.map((d) => {
             const active = weeklyOffs.defaultDays.includes(d.value);
@@ -881,7 +869,6 @@ function CalendarTab({
           })}
         </View>
 
-        {/* Saturday rule picker — only shown if Saturday is selected */}
         {satSelected && (
           <>
             <View style={s.divider} />
@@ -902,7 +889,6 @@ function CalendarTab({
         )}
       </Card>
 
-      {/* ── Section 2: Payroll Rules ── */}
       <SectionLabel title="Payroll Rules" />
       <Card>
         <ToggleRow
@@ -917,7 +903,6 @@ function CalendarTab({
         <View style={s.divider} />
         <Field label="Holiday Pay Multiplier">
           <View style={s.multiplierRow}>
-            {/* Decrement */}
             <Pressable
               style={s.stepBtn}
               onPress={() => {
@@ -932,7 +917,6 @@ function CalendarTab({
               <Text style={s.multiplierValue}>{(settings.holidayPayMultiplier ?? 2.0).toFixed(1)}</Text>
               <Text style={s.multiplierUnit}>×</Text>
             </View>
-            {/* Increment */}
             <Pressable
               style={s.stepBtn}
               onPress={() => {
@@ -951,11 +935,9 @@ function CalendarTab({
         </Field>
       </Card>
 
-      {/* ── Section 3: Public Holidays ── */}
       <SectionLabel title="Public Holidays" />
       {limits?.publicHolidaysEnabled ? (
         <>
-          {/* Add holiday form */}
           <Card>
             <Text style={s.cardSubtitle}>Add national/regional holidays to auto-mark on muster.</Text>
             <Field label="Holiday Name">
@@ -1001,27 +983,22 @@ function CalendarTab({
             </Pressable>
           </Card>
 
-          {/* Holiday list */}
           {holidays.length > 0 && (
             <View style={{ gap: 8 }}>
               {holidays.map((h) => {
                 const { month, day } = formatHolidayDate(h.date);
                 return (
                   <View key={h.id} style={s.holidayRow}>
-                    {/* Date chip */}
                     <View style={s.holidayDateChip}>
                       <Text style={s.holidayMonth}>{month}</Text>
                       <Text style={s.holidayDay}>{day}</Text>
                     </View>
-                    {/* Name */}
                     <Text style={s.holidayName} numberOfLines={1}>{h.name}</Text>
-                    {/* Paid / Unpaid badge */}
                     <View style={[s.holidayBadge, h.isPaid ? s.holidayBadgePaid : s.holidayBadgeUnpaid]}>
                       <Text style={[s.holidayBadgeTxt, h.isPaid ? s.holidayBadgeTxtPaid : s.holidayBadgeTxtUnpaid]}>
                         {h.isPaid ? 'Paid' : 'Unpaid'}
                       </Text>
                     </View>
-                    {/* Delete */}
                     <Pressable onPress={() => deleteHoliday(h.id)} hitSlop={8} style={s.holidayDeleteBtn}>
                       <Ionicons name="trash-outline" size={15} color="#EF4444" />
                     </Pressable>
@@ -1052,7 +1029,7 @@ function CalendarTab({
 }
 
 // ─────────────────────────────────────────────────────────────
-// ★ NEW — LEAVES TAB (Task 16)
+// LEAVES TAB
 // ─────────────────────────────────────────────────────────────
 function LeavesTab({
   settings, setSettings, limits,
@@ -1085,7 +1062,6 @@ function LeavesTab({
           Set the annual leave entitlements for all workers. Balances reset each calendar year.
         </Text>
 
-        {/* 3-column quota inputs */}
         <View style={s.fieldRow}>
           {/* CL */}
           <View style={[s.leaveQuotaBox, { borderColor: '#BFDBFE', backgroundColor: '#EFF6FF' }]}>
@@ -1162,7 +1138,6 @@ function LeavesTab({
         </View>
       </Card>
 
-      {/* ── Negative Balance ── */}
       <SectionLabel title="Leave Encashment Rules" />
       <Card>
         <ToggleRow
@@ -1184,7 +1159,6 @@ function LeavesTab({
         )}
       </Card>
 
-      {/* ── Summary block ── */}
       <Card style={[s.leaveSummaryCard]}>
         <Text style={s.leaveSummaryTitle}>Leave Budget per Worker</Text>
         <View style={s.leaveSummaryRow}>
@@ -1350,7 +1324,7 @@ export default function SettingsScreen() {
           )}
         </ScrollView>
 
-        {/* Floating save bar — hidden on TERMINALS (manages its own writes) */}
+        {/* Floating save bar */}
         {activeTab !== 'TERMINALS' && (
           <Animated.View style={[s.saveBar, { transform: [{ translateY: saveBtnTranslate }] }]}>
             <View style={s.saveBarLeft}>
@@ -1490,14 +1464,13 @@ const s = StyleSheet.create({
   emptyTerminalsTxt: { fontSize: 13, fontWeight: '700', color: '#9CA3AF' },
   emptyTerminalsSub: { fontSize: 11, color: '#D1D5DB' },
 
-  // ★ Calendar (Task 16)
+  // Calendar
   dayRow:      { flexDirection: 'row', gap: 6, marginBottom: 4 },
   dayBtn:      { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' },
   dayBtnActive:{ backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
   dayBtnTxt:   { fontSize: 11, fontWeight: '800', color: '#6B7280' },
   dayBtnTxtActive: { color: '#fff' },
 
-  // Inline picker
   pickerTrigger:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#F9FAFB', marginTop: 5 },
   pickerTriggerTxt: { fontSize: 14, color: '#111827', flex: 1 },
   modalOverlay:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
@@ -1508,7 +1481,6 @@ const s = StyleSheet.create({
   pickerOptionTxt:    { fontSize: 14, color: '#374151' },
   pickerOptionTxtActive: { color: '#4F46E5', fontWeight: '800' },
 
-  // Multiplier step control
   multiplierRow:    { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 5 },
   stepBtn:          { width: 36, height: 36, borderRadius: 10, backgroundColor: '#EEF2FF', borderWidth: 1, borderColor: '#C7D2FE', alignItems: 'center', justifyContent: 'center' },
   multiplierDisplay:{ flexDirection: 'row', alignItems: 'baseline', gap: 2, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 },
@@ -1516,11 +1488,9 @@ const s = StyleSheet.create({
   multiplierUnit:   { fontSize: 14, fontWeight: '800', color: '#6B7280' },
   multiplierHint:   { flex: 1, fontSize: 11, color: '#6B7280', lineHeight: 16 },
 
-  // Add holiday button
   addHolidayBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#4F46E5', borderRadius: 12, paddingVertical: 11, marginTop: 14 },
   addHolidayBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
-  // Holiday list row
   holidayRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: '#F3F4F6', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 3, elevation: 1 },
   holidayDateChip:   { width: 46, alignItems: 'center', backgroundColor: '#EEF2FF', borderRadius: 12, paddingVertical: 6 },
   holidayMonth:      { fontSize: 9, fontWeight: '900', color: '#6366F1', textTransform: 'uppercase' },
@@ -1534,7 +1504,7 @@ const s = StyleSheet.create({
   holidayBadgeTxtUnpaid: { color: '#D97706' },
   holidayDeleteBtn:      { width: 30, height: 30, borderRadius: 8, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' },
 
-  // ★ Leaves (Task 16)
+  // Leaves
   leaveQuotaBox:   { flex: 1, alignItems: 'center', borderRadius: 16, borderWidth: 1, padding: 14, gap: 4 },
   leaveQuotaIcon:  { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   leaveQuotaEmoji: { fontSize: 18 },

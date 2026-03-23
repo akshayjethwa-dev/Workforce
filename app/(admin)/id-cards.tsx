@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ActivityIndicator,
-  FlatList, Modal, ScrollView, Platform, Alert,
+  Modal, ScrollView, Platform, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -14,6 +14,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { useAuth }   from './../../src/contexts/AuthContext';
 import { dbService } from './../../src/services/db';
 import { Worker }    from './../../src/types/index';
+
 
 // ─────────────────────────────────────────────────────────────
 // Constants
@@ -27,6 +28,7 @@ const BRAND = {
   text:      '#111827',
   sub:       '#6B7280',
 };
+
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -55,8 +57,9 @@ function qrValue(worker: Worker, tenantId: string): string {
   });
 }
 
+
 // ─────────────────────────────────────────────────────────────
-// HTML payslip generator for print (2 cards per row)
+// HTML ID Cards generator for print (2 cards per row)
 // ─────────────────────────────────────────────────────────────
 function buildIDCardsHTML(params: {
   workers:   Worker[];
@@ -72,8 +75,6 @@ function buildIDCardsHTML(params: {
     const dept      = (w as any).department ?? '—';
     const desig     = (w as any).designation ?? '—';
     const qrData    = qrValue(w, tenantId);
-
-    // QR as SVG data URL via Google Charts API (works in HTML/print)
     const qrUrl     = `https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(qrData)}`;
 
     return `
@@ -167,6 +168,7 @@ function buildIDCardsHTML(params: {
 </html>`;
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // In-app ID Card preview component
 // ─────────────────────────────────────────────────────────────
@@ -194,7 +196,6 @@ function IDCardPreview({
 
       {/* Body */}
       <View style={card.body}>
-        {/* Avatar */}
         <View style={[card.avatar, { backgroundColor: bg }]}>
           <Text style={card.avatarTxt}>{initials}</Text>
         </View>
@@ -240,6 +241,7 @@ function IDCardPreview({
   );
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Worker list row
 // ─────────────────────────────────────────────────────────────
@@ -282,6 +284,7 @@ function WorkerRow({
   );
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Main Screen
 // ─────────────────────────────────────────────────────────────
@@ -289,12 +292,12 @@ export default function IDCardsScreen() {
   const { profile } = useAuth();
   const router      = useRouter();
 
-  const [workers,     setWorkers]     = useState<Worker[]>([]);
-  const [selected,    setSelected]    = useState<Set<string>>(new Set());
-  const [loading,     setLoading]     = useState(true);
-  const [printing,    setPrinting]    = useState(false);
-  const [error,       setError]       = useState<string | null>(null);
-  const [orgName,     setOrgName]     = useState('WorkforcePro');
+  const [workers,       setWorkers]       = useState<Worker[]>([]);
+  const [selected,      setSelected]      = useState<Set<string>>(new Set());
+  const [loading,       setLoading]       = useState(true);
+  const [printing,      setPrinting]      = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
+  const [orgName,       setOrgName]       = useState('WorkforcePro');
   const [previewWorker, setPreviewWorker] = useState<Worker | null>(null);
 
   // ── Fetch workers ────────────────────────────────────────
@@ -307,7 +310,6 @@ export default function IDCardsScreen() {
         dbService.getWorkers(profile.tenantId),
         dbService.getTenant(profile.tenantId),
       ]);
-      // Active workers only
       const active = all.filter((w: any) => w.status !== 'INACTIVE' && w.isActive !== false);
       setWorkers(active);
       if (tenant?.name) setOrgName(tenant.name);
@@ -409,7 +411,6 @@ export default function IDCardsScreen() {
 
       {/* ── Toolbar ── */}
       <View style={s.toolbar}>
-        {/* Select All */}
         <Pressable style={s.selectAllBtn} onPress={toggleSelectAll}>
           <View style={[
             s.checkbox,
@@ -424,7 +425,6 @@ export default function IDCardsScreen() {
           </Text>
         </Pressable>
 
-        {/* Print button */}
         <Pressable
           style={[s.printBtn, (printing || selected.size === 0) && { opacity: 0.5 }]}
           onPress={handlePrint}
@@ -466,21 +466,24 @@ export default function IDCardsScreen() {
           <Text style={s.emptyTxt}>No active workers found.</Text>
         </View>
       ) : (
-        <FlatList
-          data={workers}
-          keyExtractor={(w) => w.id}
-          renderItem={({ item }) => (
-            <WorkerRow
-              worker={item}
-              selected={selected.has(item.id)}
-              onToggle={() => toggleWorker(item.id)}
-              onPreview={() => setPreviewWorker(item)}
-            />
-          )}
+        <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={s.listContent}
-          ItemSeparatorComponent={() => <View style={s.sep} />}
           showsVerticalScrollIndicator={false}
-        />
+          keyboardShouldPersistTaps="handled"
+        >
+          {workers.map((item, index) => (
+            <React.Fragment key={item.id}>
+              <WorkerRow
+                worker={item}
+                selected={selected.has(item.id)}
+                onToggle={() => toggleWorker(item.id)}
+                onPreview={() => setPreviewWorker(item)}
+              />
+              {index < workers.length - 1 && <View style={s.sep} />}
+            </React.Fragment>
+          ))}
+        </ScrollView>
       )}
 
       {/* ── Preview Modal ── */}
@@ -582,12 +585,12 @@ export default function IDCardsScreen() {
   );
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // ID Card preview styles
 // ─────────────────────────────────────────────────────────────
 const card = StyleSheet.create({
   root:       { width: 280, borderRadius: 16, overflow: 'hidden', backgroundColor: '#fff', shadowColor: BRAND.primary, shadowOpacity: 0.2, shadowRadius: 12, elevation: 8 },
-  // ✅ removed `background: BRAND.primary` — not a valid RN style prop
   header:     { backgroundColor: BRAND.primary, paddingVertical: 16, paddingHorizontal: 16, alignItems: 'center' },
   orgLogoBox: { width: 38, height: 38, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   orgLogoTxt: { fontSize: 15, fontWeight: '900', color: '#fff' },
@@ -629,6 +632,7 @@ const wr = StyleSheet.create({
   previewBtn:  { width: 36, height: 36, borderRadius: 10, backgroundColor: BRAND.light, alignItems: 'center', justifyContent: 'center' },
 });
 
+
 // ─────────────────────────────────────────────────────────────
 // Modal styles
 // ─────────────────────────────────────────────────────────────
@@ -646,6 +650,7 @@ const modal = StyleSheet.create({
   printSingleBtn:    { backgroundColor: BRAND.primary },
   printSingleTxt:    { fontSize: 14, fontWeight: '700', color: '#fff' },
 });
+
 
 // ─────────────────────────────────────────────────────────────
 // Main styles

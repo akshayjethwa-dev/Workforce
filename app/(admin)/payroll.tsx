@@ -1,8 +1,8 @@
 // app/(admin)/payroll.tsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, Pressable,
-  ActivityIndicator, Modal, ScrollView, Alert,
+  View, Text, StyleSheet, Pressable,
+  ActivityIndicator, Modal, ScrollView, Alert, Platform,
 } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -13,6 +13,7 @@ import { wageService } from '../../src/services/wageService';
 import {
   MonthlyPayroll, Worker, AttendanceRecord, Advance, OrgSettings,
 } from '../../src/types/index';
+
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -25,6 +26,7 @@ const MONTHS = [
 const fmt  = (n: number) => '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 const fmtK = (n: number) => n >= 1000 ? `₹${(n / 1000).toFixed(1)}k` : fmt(n);
 
+
 // ─────────────────────────────────────────────────────────────
 // Payroll Screen
 // ─────────────────────────────────────────────────────────────
@@ -32,17 +34,17 @@ export default function PayrollScreen() {
   const { profile, limits } = useAuth();
 
   const now = new Date();
-  const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
+  const [selectedYear,  setSelectedYear]  = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
-  const [pickerModal, setPickerModal]     = useState(false);
+  const [pickerModal,   setPickerModal]   = useState(false);
 
-  const [workers, setWorkers]             = useState<Worker[]>([]);
-  const [attendance, setAttendance]       = useState<AttendanceRecord[]>([]);
-  const [advances, setAdvances]           = useState<Advance[]>([]);
-  const [settings, setSettings]           = useState<OrgSettings | null>(null);
+  const [workers,       setWorkers]       = useState<Worker[]>([]);
+  const [attendance,    setAttendance]    = useState<AttendanceRecord[]>([]);
+  const [advances,      setAdvances]      = useState<Advance[]>([]);
+  const [settings,      setSettings]      = useState<OrgSettings | null>(null);
   const [savedPayrolls, setSavedPayrolls] = useState<MonthlyPayroll[]>([]);
-  const [loading, setLoading]             = useState(true);
-  const [exporting, setExporting]         = useState(false);
+  const [loading,       setLoading]       = useState(true);
+  const [exporting,     setExporting]     = useState(false);
 
   const [detailPayroll, setDetailPayroll] = useState<MonthlyPayroll | null>(null);
 
@@ -110,7 +112,6 @@ export default function PayrollScreen() {
           text: 'Confirm',
           onPress: async () => {
             try {
-              // ✅ FIX 1: narrow undefined with ?? 0
               const carryFwd = payroll.carriedForwardAdvance ?? 0;
               if (carryFwd > 0) {
                 const [y, m] = monthStr.split('-');
@@ -120,10 +121,10 @@ export default function PayrollScreen() {
                 await dbService.addAdvance({
                   tenantId: profile!.tenantId,
                   workerId: payroll.workerId,
-                  amount: carryFwd,            // ✅ definitely number
-                  date: nextMs,
-                  reason: 'Carry Forward from Previous Month',
-                  status: 'APPROVED',
+                  amount:   carryFwd,
+                  date:     nextMs,
+                  reason:   'Carry Forward from Previous Month',
+                  status:   'APPROVED',
                 });
               }
               const updated: MonthlyPayroll = { ...payroll, status: 'PAID' };
@@ -144,6 +145,9 @@ export default function PayrollScreen() {
   }, [monthStr, profile]);
 
   // ── PDF Export ────────────────────────────────────────────
+  // ✅ FIX: Web guard MUST come before printToFileAsync —
+  //    Print.printToFileAsync returns undefined on web, causing
+  //    "Cannot destructure property 'uri'" crash
   const handleExport = useCallback(async () => {
     if (!payrolls.length) return;
     setExporting(true);
@@ -205,12 +209,28 @@ export default function PayrollScreen() {
         </body>
         </html>`;
 
+      // ✅ Web guard FIRST — before any Print API call
+      if (Platform.OS === 'web') {
+        const win = window.open('', '_blank');
+        if (win) {
+          win.document.write(html);
+          win.document.close();
+          win.print();
+        }
+        return; // ← stops here on web
+      }
+
+      // ✅ Native only (iOS / Android)
       const { uri } = await Print.printToFileAsync({ html, base64: false });
-      await Sharing.shareAsync(uri, {
-        mimeType: 'application/pdf',
-        dialogTitle: `Payroll ${MONTHS[selectedMonth]} ${selectedYear}`,
-        UTI: 'com.adobe.pdf',
-      });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType:    'application/pdf',
+          dialogTitle: `Payroll ${MONTHS[selectedMonth]} ${selectedYear}`,
+          UTI:         'com.adobe.pdf',
+        });
+      } else {
+        await Print.printAsync({ uri });
+      }
     } catch (e) {
       console.error('Export error:', e);
       Alert.alert('Export Failed', 'Could not generate PDF.');
@@ -218,80 +238,6 @@ export default function PayrollScreen() {
       setExporting(false);
     }
   }, [payrolls, selectedMonth, selectedYear, paidTotal, pendingTotal, profile]);
-
-  // ── Worker card ───────────────────────────────────────────
-  const renderCard = useCallback(({ item: p }: { item: MonthlyPayroll }) => {
-    const isPaid = p.status === 'PAID';
-    return (
-      <Pressable
-        style={s.card}
-        onPress={() => {
-          if (!(limits as any)?.payslipEnabled) {
-            Alert.alert('Premium Feature', 'Detailed payslips require a premium plan. Please upgrade.');
-            return;
-          }
-          setDetailPayroll(p);
-        }}
-      >
-        <View style={s.cardRow}>
-          <View style={s.avatarWrap}>
-            <Text style={s.avatarTxt}>{p.workerName.charAt(0).toUpperCase()}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.workerName}>{p.workerName}</Text>
-            <Text style={s.workerDept}>{p.workerDepartment ?? p.workerDesignation ?? '—'}</Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={s.netPay}>{fmt(p.netPayable)}</Text>
-            <View style={[s.statusBadge, isPaid ? s.badgePaid : s.badgePending]}>
-              <Ionicons
-                name={isPaid ? 'checkmark-circle' : 'time-outline'}
-                size={10}
-                color={isPaid ? '#16A34A' : '#EA580C'}
-              />
-              <Text style={[s.statusBadgeTxt, { color: isPaid ? '#16A34A' : '#EA580C' }]}>
-                {isPaid ? 'PAID' : 'PENDING'}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={s.chipRow}>
-          <AttChip label="P"  value={p.attendanceSummary.presentDays}  color="#16A34A" />
-          {p.attendanceSummary.halfDays > 0 && (
-            <AttChip label="HD" value={p.attendanceSummary.halfDays} color="#D97706" />
-          )}
-          {p.attendanceSummary.absentDays > 0 && (
-            <AttChip label="A"  value={p.attendanceSummary.absentDays}  color="#DC2626" />
-          )}
-          {(p.attendanceSummary.paidLeaves ?? 0) > 0 && (
-            <AttChip label="L"  value={p.attendanceSummary.paidLeaves!} color="#7C3AED" />
-          )}
-          <AttChip label="OT" value={`${p.attendanceSummary.totalOvertimeHours}h`} color="#2563EB" />
-        </View>
-
-        <View style={[s.cardRow, { marginTop: 10 }]}>
-          <View style={s.earningsRow}>
-            <Text style={s.earningsLabel}>Gross</Text>
-            <Text style={s.earningsVal}>{fmt(p.earnings.gross)}</Text>
-            {p.deductions.advances > 0 && (
-              <>
-                <Text style={[s.earningsLabel, { marginLeft: 12 }]}>Deduct</Text>
-                <Text style={[s.earningsVal, { color: '#DC2626' }]}>
-                  -{fmt(p.deductions.advances)}
-                </Text>
-              </>
-            )}
-          </View>
-          {!isPaid && (
-            <Pressable style={s.markPaidBtn} onPress={() => handleMarkPaid(p)}>
-              <Text style={s.markPaidTxt}>Mark Paid</Text>
-            </Pressable>
-          )}
-        </View>
-      </Pressable>
-    );
-  }, [limits, handleMarkPaid]);
 
   // ── Guards ────────────────────────────────────────────────
   if (loading) return (
@@ -333,23 +279,45 @@ export default function PayrollScreen() {
         <SummaryCard label="Total Paid"     value={fmtK(paidTotal)}    color="#16A34A" icon="checkmark-circle-outline" />
       </View>
 
-      {/* List */}
-      <FlatList
-        data={payrolls}
-        keyExtractor={(p) => p.id}
-        renderItem={renderCard}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        ListEmptyComponent={
-          <View style={s.empty}>
-            <Ionicons name="receipt-outline" size={48} color="#D1D5DB" />
-            <Text style={s.emptyTxt}>No workers found for this month.</Text>
-          </View>
-        }
-      />
+      {/* ✅ FlatList replaced with ScrollView + .map() */}
+      {payrolls.length === 0 ? (
+        <View style={s.empty}>
+          <Ionicons name="receipt-outline" size={48} color="#D1D5DB" />
+          <Text style={s.emptyTxt}>No workers found for this month.</Text>
+        </View>
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {payrolls.map((p, index) => (
+            <React.Fragment key={p.id}>
+              <PayrollCard
+                payroll={p}
+                limits={limits}
+                onPress={() => {
+                  if (!(limits as any)?.payslipEnabled) {
+                    Alert.alert('Premium Feature', 'Detailed payslips require a premium plan. Please upgrade.');
+                    return;
+                  }
+                  setDetailPayroll(p);
+                }}
+                onMarkPaid={() => handleMarkPaid(p)}
+              />
+              {index < payrolls.length - 1 && <View style={{ height: 10 }} />}
+            </React.Fragment>
+          ))}
+        </ScrollView>
+      )}
 
       {/* Month picker */}
-      <Modal visible={pickerModal} transparent animationType="slide" onRequestClose={() => setPickerModal(false)}>
+      <Modal
+        visible={pickerModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPickerModal(false)}
+      >
         <View style={s.pickerOverlay}>
           <View style={s.pickerCard}>
             <Text style={s.pickerTitle}>Select Month</Text>
@@ -394,6 +362,80 @@ export default function PayrollScreen() {
   );
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// PayrollCard — extracted from inline renderItem
+// ─────────────────────────────────────────────────────────────
+function PayrollCard({ payroll: p, limits, onPress, onMarkPaid }: {
+  payroll:    MonthlyPayroll;
+  limits:     any;
+  onPress:    () => void;
+  onMarkPaid: () => void;
+}) {
+  const isPaid = p.status === 'PAID';
+  return (
+    <Pressable style={s.card} onPress={onPress}>
+      <View style={s.cardRow}>
+        <View style={s.avatarWrap}>
+          <Text style={s.avatarTxt}>{p.workerName.charAt(0).toUpperCase()}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.workerName}>{p.workerName}</Text>
+          <Text style={s.workerDept}>{p.workerDepartment ?? p.workerDesignation ?? '—'}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={s.netPay}>{fmt(p.netPayable)}</Text>
+          <View style={[s.statusBadge, isPaid ? s.badgePaid : s.badgePending]}>
+            <Ionicons
+              name={isPaid ? 'checkmark-circle' : 'time-outline'}
+              size={10}
+              color={isPaid ? '#16A34A' : '#EA580C'}
+            />
+            <Text style={[s.statusBadgeTxt, { color: isPaid ? '#16A34A' : '#EA580C' }]}>
+              {isPaid ? 'PAID' : 'PENDING'}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={s.chipRow}>
+        <AttChip label="P"  value={p.attendanceSummary.presentDays}  color="#16A34A" />
+        {p.attendanceSummary.halfDays > 0 && (
+          <AttChip label="HD" value={p.attendanceSummary.halfDays} color="#D97706" />
+        )}
+        {p.attendanceSummary.absentDays > 0 && (
+          <AttChip label="A"  value={p.attendanceSummary.absentDays}  color="#DC2626" />
+        )}
+        {(p.attendanceSummary.paidLeaves ?? 0) > 0 && (
+          <AttChip label="L"  value={p.attendanceSummary.paidLeaves!} color="#7C3AED" />
+        )}
+        <AttChip label="OT" value={`${p.attendanceSummary.totalOvertimeHours}h`} color="#2563EB" />
+      </View>
+
+      <View style={[s.cardRow, { marginTop: 10 }]}>
+        <View style={s.earningsRow}>
+          <Text style={s.earningsLabel}>Gross</Text>
+          <Text style={s.earningsVal}>{fmt(p.earnings.gross)}</Text>
+          {p.deductions.advances > 0 && (
+            <>
+              <Text style={[s.earningsLabel, { marginLeft: 12 }]}>Deduct</Text>
+              <Text style={[s.earningsVal, { color: '#DC2626' }]}>
+                -{fmt(p.deductions.advances)}
+              </Text>
+            </>
+          )}
+        </View>
+        {!isPaid && (
+          <Pressable style={s.markPaidBtn} onPress={onMarkPaid}>
+            <Text style={s.markPaidTxt}>Mark Paid</Text>
+          </Pressable>
+        )}
+      </View>
+    </Pressable>
+  );
+}
+
+
 // ─────────────────────────────────────────────────────────────
 // Sub-components
 // ─────────────────────────────────────────────────────────────
@@ -422,12 +464,11 @@ function AttChip({ label, value, color }: {
 }
 
 function DetailModal({ payroll: p, onClose, onMarkPaid }: {
-  payroll: MonthlyPayroll;
-  onClose: () => void;
+  payroll:    MonthlyPayroll;
+  onClose:    () => void;
   onMarkPaid: () => void;
 }) {
   const isPaid   = p.status === 'PAID';
-  // ✅ FIX 2 & 3: ?? 0 on all carriedForwardAdvance reads
   const carryFwd = p.carriedForwardAdvance ?? 0;
 
   const rows: [string, string][] = [
@@ -513,6 +554,7 @@ function DetailModal({ payroll: p, onClose, onMarkPaid }: {
   );
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Styles
 // ─────────────────────────────────────────────────────────────
@@ -546,9 +588,9 @@ const s = StyleSheet.create({
   badgePending: { backgroundColor: '#FFF7ED' },
   statusBadgeTxt: { fontSize: 10, fontWeight: '800' },
 
-  chipRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
-  chip:       { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  chipTxt:    { fontSize: 11, fontWeight: '800' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  chip:    { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  chipTxt: { fontSize: 11, fontWeight: '800' },
 
   earningsRow:   { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F9FAFB', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
   earningsLabel: { fontSize: 11, color: '#9CA3AF', fontWeight: '600' },
@@ -565,7 +607,7 @@ const s = StyleSheet.create({
   yearRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24, marginBottom: 16 },
   yearTxt:       { fontSize: 20, fontWeight: '800', color: '#111827' },
   monthGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
-  monthBtn:      { width: '22%', paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: '#F3F4F6' },
+  monthBtn:          { width: '22%', paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: '#F3F4F6' },
   monthBtnActive:    { backgroundColor: '#4F46E5' },
   monthBtnTxt:       { fontSize: 13, fontWeight: '700', color: '#374151' },
   monthBtnTxtActive: { color: '#fff' },
