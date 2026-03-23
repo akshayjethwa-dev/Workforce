@@ -1,9 +1,16 @@
 // app/(admin)/workers/index.tsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  View, Text, FlatList, TextInput, Pressable,
-  StyleSheet, RefreshControl, Modal, ActivityIndicator,
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  RefreshControl,
+  Modal,
+  ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +18,8 @@ import { useAuth } from '../../../src/contexts/AuthContext';
 import { dbService } from '../../../src/services/db';
 import { wageService } from '../../../src/services/wageService';
 import { Worker, OrgSettings } from '../../../src/types/index';
+// ✅ SafeFlatList — strips columnWrapperStyle on web to prevent css-interop crash
+import SafeFlatList from '../../../src/components/SafeFlatList';
 
 // ─────────────────────────────────────────────────────────────
 // Worker Card  (React.memo for FlatList perf)
@@ -79,7 +88,10 @@ const WorkerCard = React.memo(
                 <Ionicons name="create-outline" size={18} color="#4F46E5" />
               </Pressable>
               {canDelete && (
-                <Pressable style={[cardStyles.iconBtn, cardStyles.iconBtnRed]} onPress={() => onDelete(worker)}>
+                <Pressable
+                  style={[cardStyles.iconBtn, cardStyles.iconBtnRed]}
+                  onPress={() => onDelete(worker)}
+                >
                   <Ionicons name="trash-outline" size={16} color="#DC2626" />
                 </Pressable>
               )}
@@ -113,6 +125,11 @@ const WorkerCard = React.memo(
 );
 
 // ─────────────────────────────────────────────────────────────
+// Separator — plain StyleSheet, no CSS-interop wrapper
+// ─────────────────────────────────────────────────────────────
+const ItemSeparator = () => <View style={styles.separator} />;
+
+// ─────────────────────────────────────────────────────────────
 // Main Screen
 // ─────────────────────────────────────────────────────────────
 type FilterType = 'ALL' | 'ACTIVE' | 'INACTIVE';
@@ -144,35 +161,39 @@ export default function WorkersScreen() {
     isSaving: false,
   });
 
-  // ── Load data ──────────────────────────────────────────────
-  const loadData = useCallback(async (isManual = false) => {
-    if (!profile?.tenantId) return;
-    if (isManual) setRefreshing(true);
-    else setLoading(true);
-    try {
-      const [workersData, settingsData] = await Promise.all([
-        dbService.getWorkers(profile.tenantId),
-        dbService.getOrgSettings(profile.tenantId),
-      ]);
-      setWorkers(workersData as Worker[]);
-      setSettings(settingsData as OrgSettings);
-    } catch (e) {
-      console.error('Failed to load workers:', e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [profile]);
+  // ── Load data ────────────────────────────────────────────────
+  const loadData = useCallback(
+    async (isManual = false) => {
+      if (!profile?.tenantId) return;
+      if (isManual) setRefreshing(true);
+      else setLoading(true);
+      try {
+        const [workersData, settingsData] = await Promise.all([
+          dbService.getWorkers(profile.tenantId),
+          dbService.getOrgSettings(profile.tenantId),
+        ]);
+        setWorkers(workersData as Worker[]);
+        setSettings(settingsData as OrgSettings);
+      } catch (e) {
+        console.error('Failed to load workers:', e);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [profile]
+  );
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  // ── Filtered list (memoized) ────────────────────────────────
+  // ── Filtered list (memoized) ─────────────────────────────────
   const filteredWorkers = useMemo(() => {
     const q = searchTerm.toLowerCase();
     return workers.filter((w) => {
       const matchSearch =
-        w.name?.toLowerCase().includes(q) ||
-        w.phone?.includes(searchTerm);
+        w.name?.toLowerCase().includes(q) || w.phone?.includes(searchTerm);
       const matchFilter =
         filter === 'ALL' ||
         (filter === 'ACTIVE' && w.status === 'ACTIVE') ||
@@ -181,7 +202,11 @@ export default function WorkersScreen() {
     });
   }, [workers, searchTerm, filter]);
 
-  // ── Add worker guard ────────────────────────────────────────
+  // ── Counts (memoized) ────────────────────────────────────────
+  const activeCount   = useMemo(() => workers.filter((w) => w.status === 'ACTIVE').length, [workers]);
+  const inactiveCount = useMemo(() => workers.filter((w) => w.status !== 'ACTIVE').length, [workers]);
+
+  // ── Add worker guard ─────────────────────────────────────────
   const handleAddWorker = () => {
     if (limits && workers.length >= limits.maxWorkers) {
       Alert.alert(
@@ -194,13 +219,18 @@ export default function WorkersScreen() {
     router.push('/(admin)/workers/add' as any);
   };
 
-  // ── Edit ────────────────────────────────────────────────────
-  const handleEdit = (worker: Worker) => {
-    router.push({ pathname: '/(admin)/workers/add' as any, params: { workerId: worker.id } });
-  };
+  // ── Edit ─────────────────────────────────────────────────────
+  const handleEdit = useCallback((worker: Worker) => {
+    router.push({
+      pathname: '/(admin)/workers/add' as any,
+      params: { workerId: worker.id },
+    });
+  }, [router]);
 
-  // ── Delete ──────────────────────────────────────────────────
-  const handleDeleteRequest = (worker: Worker) => setWorkerToDelete(worker);
+  // ── Delete ───────────────────────────────────────────────────
+  const handleDeleteRequest = useCallback((worker: Worker) => {
+    setWorkerToDelete(worker);
+  }, []);
 
   const confirmDelete = async () => {
     if (!workerToDelete || !profile?.tenantId) return;
@@ -217,28 +247,41 @@ export default function WorkersScreen() {
     }
   };
 
-  // ── Advance ─────────────────────────────────────────────────
-  const handleOpenAdvance = async (worker: Worker) => {
-    if (!limits?.allowancesAndDeductionsEnabled) {
-      Alert.alert('Pro Feature', 'Advance/Kharchi tracking requires a Pro plan.');
-      return;
-    }
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const [attendance, advances] = await Promise.all([
-      dbService.getAttendanceHistory(profile!.tenantId!),
-      dbService.getAdvances(profile!.tenantId!),
-    ]);
-    const earned = wageService.calculateCurrentEarnings(worker, currentMonth, attendance, settings!);
-    const existingAdvances = (advances as any[])
-      .filter((a) => a.workerId === worker.id && a.date.startsWith(currentMonth))
-      .reduce((sum: number, a: any) => sum + a.amount, 0);
+  // ── Advance ──────────────────────────────────────────────────
+  const handleOpenAdvance = useCallback(
+    async (worker: Worker) => {
+      if (!limits?.allowancesAndDeductionsEnabled) {
+        Alert.alert('Pro Feature', 'Advance/Kharchi tracking requires a Pro plan.');
+        return;
+      }
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const [attendance, advances] = await Promise.all([
+        dbService.getAttendanceHistory(profile!.tenantId!),
+        dbService.getAdvances(profile!.tenantId!),
+      ]);
+      const earned = wageService.calculateCurrentEarnings(
+        worker,
+        currentMonth,
+        attendance,
+        settings!
+      );
+      const existingAdvances = (advances as any[])
+        .filter((a) => a.workerId === worker.id && a.date.startsWith(currentMonth))
+        .reduce((sum: number, a: any) => sum + a.amount, 0);
 
-    setAdvanceModal({
-      isOpen: true, worker, amount: '',
-      date: new Date().toISOString().split('T')[0],
-      reason: 'Kharchi', earned, existingAdvances, isSaving: false,
-    });
-  };
+      setAdvanceModal({
+        isOpen: true,
+        worker,
+        amount: '',
+        date: new Date().toISOString().split('T')[0],
+        reason: 'Kharchi',
+        earned,
+        existingAdvances,
+        isSaving: false,
+      });
+    },
+    [limits, profile, settings]
+  );
 
   const handleSaveAdvance = async () => {
     if (!profile?.tenantId || !advanceModal.worker || !advanceModal.amount) return;
@@ -260,12 +303,12 @@ export default function WorkersScreen() {
   };
 
   const willOverBorrow =
-    (Number(advanceModal.amount || 0) + advanceModal.existingAdvances) > advanceModal.earned;
+    Number(advanceModal.amount || 0) + advanceModal.existingAdvances > advanceModal.earned;
 
-  const canDelete = profile?.role === 'FACTORY_OWNER';
+  const canDelete      = profile?.role === 'FACTORY_OWNER';
   const advanceEnabled = !!limits?.allowancesAndDeductionsEnabled;
 
-  // ── Render item ─────────────────────────────────────────────
+  // ── Render item ──────────────────────────────────────────────
   const renderItem = useCallback(
     ({ item }: { item: Worker }) => (
       <WorkerCard
@@ -278,11 +321,11 @@ export default function WorkersScreen() {
         onAdvance={handleOpenAdvance}
       />
     ),
-    [settings, canDelete, advanceEnabled]
+    [settings, canDelete, advanceEnabled, handleEdit, handleDeleteRequest, handleOpenAdvance]
   );
 
-  // ── Empty state ─────────────────────────────────────────────
-  const renderEmpty = () => {
+  // ── Empty state ──────────────────────────────────────────────
+  const renderEmpty = useCallback(() => {
     if (loading) return null;
     return (
       <View style={styles.emptyState}>
@@ -297,49 +340,54 @@ export default function WorkersScreen() {
         </Text>
       </View>
     );
-  };
+  }, [loading, searchTerm, filter]);
 
-  // ── Header (search + filter) ────────────────────────────────
-  const ListHeader = (
-    <View style={styles.listHeader}>
-      {/* Search bar */}
-      <View style={styles.searchBar}>
-        <Ionicons name="search-outline" size={18} color="#9CA3AF" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by name or phone..."
-          placeholderTextColor="#9CA3AF"
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          returnKeyType="search"
-        />
-        {!!searchTerm && (
-          <Pressable onPress={() => setSearchTerm('')}>
-            <Ionicons name="close-circle" size={16} color="#9CA3AF" />
-          </Pressable>
-        )}
-      </View>
+  // ── List Header (memoized to avoid FlatList re-renders) ──────
+  const ListHeader = useMemo(
+    () => (
+      <View style={styles.listHeader}>
+        {/* Search bar */}
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={18} color="#9CA3AF" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name or phone..."
+            placeholderTextColor="#9CA3AF"
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            returnKeyType="search"
+          />
+          {!!searchTerm && (
+            <Pressable onPress={() => setSearchTerm('')}>
+              <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+            </Pressable>
+          )}
+        </View>
 
-      {/* Filter pills */}
-      <View style={styles.filterRow}>
-        {(['ALL', 'ACTIVE', 'INACTIVE'] as FilterType[]).map((f) => (
-          <Pressable
-            key={f}
-            style={[styles.filterPill, filter === f && styles.filterPillActive]}
-            onPress={() => setFilter(f)}
-          >
-            <Text style={[styles.filterPillText, filter === f && styles.filterPillTextActive]}>
-              {f === 'ALL' ? `All (${workers.length})` : f === 'ACTIVE'
-                ? `Active (${workers.filter((w) => w.status === 'ACTIVE').length})`
-                : `Inactive (${workers.filter((w) => w.status !== 'ACTIVE').length})`}
-            </Text>
-          </Pressable>
-        ))}
+        {/* Filter pills */}
+        <View style={styles.filterRow}>
+          {(['ALL', 'ACTIVE', 'INACTIVE'] as FilterType[]).map((f) => (
+            <Pressable
+              key={f}
+              style={[styles.filterPill, filter === f && styles.filterPillActive]}
+              onPress={() => setFilter(f)}
+            >
+              <Text style={[styles.filterPillText, filter === f && styles.filterPillTextActive]}>
+                {f === 'ALL'
+                  ? `All (${workers.length})`
+                  : f === 'ACTIVE'
+                  ? `Active (${activeCount})`
+                  : `Inactive (${inactiveCount})`}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
-    </View>
+    ),
+    [searchTerm, filter, workers.length, activeCount, inactiveCount]
   );
 
-  // ── Main Render ─────────────────────────────────────────────
+  // ── Main Render ──────────────────────────────────────────────
   return (
     <View style={styles.container}>
       {/* Page title */}
@@ -353,10 +401,11 @@ export default function WorkersScreen() {
           <ActivityIndicator size="large" color="#4F46E5" />
         </View>
       ) : (
-        <FlatList
-          // THE FIX: We force the component to remount cleanly with numColumns set to 0 instead of 1 
-          // or omitting it. By removing the explicit height on the separator, we avoid CSS-interop attempting to wrap it.
-          key={"single-col"} 
+        // ✅ SafeFlatList replaces FlatList — strips columnWrapperStyle
+        //    injected by react-native-css-interop on web builds
+        <SafeFlatList
+          numColumns={1}
+          key="workers-list"
           data={filteredWorkers}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
@@ -372,8 +421,8 @@ export default function WorkersScreen() {
           }
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          ItemSeparatorComponent={() => <View style={styles.separator} />} 
-          removeClippedSubviews={false} // Disable on web to prevent layout bugs
+          ItemSeparatorComponent={ItemSeparator}
+          removeClippedSubviews={Platform.OS !== 'web'}
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={5}
@@ -394,7 +443,6 @@ export default function WorkersScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            {/* Header */}
             <View style={[styles.modalHeader, { backgroundColor: '#FEF2F2' }]}>
               <View style={styles.modalHeaderLeft}>
                 <Ionicons name="warning-outline" size={20} color="#DC2626" />
@@ -411,9 +459,15 @@ export default function WorkersScreen() {
                 <Text style={{ fontWeight: '800' }}>{workerToDelete?.name}</Text>?
               </Text>
               <View style={styles.warningBox}>
-                <Ionicons name="alert-circle-outline" size={15} color="#B45309" style={{ marginTop: 1 }} />
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={15}
+                  color="#B45309"
+                  style={{ marginTop: 1 }}
+                />
                 <Text style={styles.warningText}>
-                  This is permanent and will delete their attendance history, advance payments, and payroll records.
+                  This is permanent and will delete their attendance history, advance
+                  payments, and payroll records.
                 </Text>
               </View>
               <View style={styles.modalActions}>
@@ -429,10 +483,11 @@ export default function WorkersScreen() {
                   onPress={confirmDelete}
                   disabled={isDeleting}
                 >
-                  {isDeleting
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={styles.deleteBtnText}>Yes, Remove</Text>
-                  }
+                  {isDeleting ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.deleteBtnText}>Yes, Remove</Text>
+                  )}
                 </Pressable>
               </View>
             </View>
@@ -463,10 +518,16 @@ export default function WorkersScreen() {
               {/* Earned / taken summary */}
               <View style={styles.advanceSummary}>
                 <Text style={styles.advanceSummaryText}>
-                  Earned: <Text style={styles.advanceSummaryBold}>₹{advanceModal.earned.toLocaleString()}</Text>
+                  Earned:{' '}
+                  <Text style={styles.advanceSummaryBold}>
+                    ₹{advanceModal.earned.toLocaleString()}
+                  </Text>
                 </Text>
                 <Text style={styles.advanceSummaryText}>
-                  Taken: <Text style={[styles.advanceSummaryBold, { color: '#DC2626' }]}>₹{advanceModal.existingAdvances.toLocaleString()}</Text>
+                  Taken:{' '}
+                  <Text style={[styles.advanceSummaryBold, { color: '#DC2626' }]}>
+                    ₹{advanceModal.existingAdvances.toLocaleString()}
+                  </Text>
                 </Text>
               </View>
 
@@ -516,19 +577,21 @@ export default function WorkersScreen() {
               </View>
 
               <Pressable
-                style={[styles.saveAdvanceBtn, (!advanceModal.amount || advanceModal.isSaving) && { opacity: 0.5 }]}
+                style={[
+                  styles.saveAdvanceBtn,
+                  (!advanceModal.amount || advanceModal.isSaving) && { opacity: 0.5 },
+                ]}
                 onPress={handleSaveAdvance}
                 disabled={!advanceModal.amount || advanceModal.isSaving}
               >
-                {advanceModal.isSaving
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="save-outline" size={16} color="#fff" />
-                      <Text style={styles.saveAdvanceBtnText}>Save Advance</Text>
-                    </View>
-                  )
-                }
+                {advanceModal.isSaving ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="save-outline" size={16} color="#fff" />
+                    <Text style={styles.saveAdvanceBtnText}>Save Advance</Text>
+                  </View>
+                )}
               </Pressable>
             </View>
           </View>
@@ -539,7 +602,7 @@ export default function WorkersScreen() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Card Styles (separate for React.memo component)
+// Card Styles
 // ─────────────────────────────────────────────────────────────
 const cardStyles = StyleSheet.create({
   card: {
@@ -560,199 +623,220 @@ const cardStyles = StyleSheet.create({
     gap: 10,
   },
   avatar: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#EEF2FF',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#E0E7FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
   },
-  avatarText: { fontSize: 16, fontWeight: '800', color: '#4F46E5' },
-  info: { flex: 1 },
-  name: { fontSize: 14, fontWeight: '700', color: '#111827' },
-  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  tag: {
-    backgroundColor: '#EFF6FF', borderRadius: 5,
-    paddingHorizontal: 6, paddingVertical: 2,
-  },
-  tagPurple: { backgroundColor: '#F5F3FF' },
-  tagGray: { backgroundColor: '#F9FAFB' },
-  tagText: { fontSize: 10, fontWeight: '600', color: '#2563EB' },
-  rightCol: { alignItems: 'flex-end', gap: 6 },
-  statusBadge: {
-    borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3,
-  },
-  activeBadge: { backgroundColor: '#DCFCE7' },
+  avatarText:    { fontSize: 16, fontWeight: '800', color: '#4F46E5' },
+  info:          { flex: 1 },
+  name:          { fontSize: 14, fontWeight: '700', color: '#111827' },
+  tagsRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  tag:           { backgroundColor: '#EFF6FF', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  tagPurple:     { backgroundColor: '#F5F3FF' },
+  tagGray:       { backgroundColor: '#F9FAFB' },
+  tagText:       { fontSize: 10, fontWeight: '600', color: '#2563EB' },
+  rightCol:      { alignItems: 'flex-end', gap: 6 },
+  statusBadge:   { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  activeBadge:   { backgroundColor: '#DCFCE7' },
   inactiveBadge: { backgroundColor: '#F3F4F6' },
-  statusText: { fontSize: 10, fontWeight: '700' },
-  actions: { flexDirection: 'row', gap: 4 },
-  iconBtn: {
-    padding: 7, borderRadius: 8,
-    backgroundColor: '#EEF2FF',
-  },
-  iconBtnRed: { backgroundColor: '#FEF2F2' },
+  statusText:    { fontSize: 10, fontWeight: '700' },
+  actions:       { flexDirection: 'row', gap: 4 },
+  iconBtn:       { padding: 7, borderRadius: 8, backgroundColor: '#EEF2FF' },
+  iconBtnRed:    { backgroundColor: '#FEF2F2' },
   bottomRow: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderTopWidth: 1, borderTopColor: '#F9FAFB',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F9FAFB',
     gap: 8,
   },
   wageChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: '#F9FAFB', borderRadius: 8,
-    paddingHorizontal: 8, paddingVertical: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
-  wageText: { fontSize: 11, fontWeight: '600', color: '#374151' },
+  wageText:         { fontSize: 11, fontWeight: '600', color: '#374151' },
   advanceBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: '#F0FDF4', borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderWidth: 1, borderColor: '#BBF7D0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
   },
-  advanceBtnLocked: {
-    backgroundColor: '#F9FAFB', borderColor: '#E5E7EB',
-  },
-  advanceBtnText: {
-    fontSize: 11, fontWeight: '700', color: '#15803D',
-  },
+  advanceBtnLocked: { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' },
+  advanceBtnText:   { fontSize: 11, fontWeight: '700', color: '#15803D' },
 });
 
 // ─────────────────────────────────────────────────────────────
 // Screen Styles
 // ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
-
-  header: {
-    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4,
-  },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: '#111827' },
-  headerSub: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-
-  loadingState: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-  },
+  container:    { flex: 1, backgroundColor: '#F9FAFB' },
+  header:       { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+  headerTitle:  { fontSize: 20, fontWeight: '800', color: '#111827' },
+  headerSub:    { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  loadingState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   // List
   listContent: { paddingHorizontal: 16, paddingBottom: 100 },
-  listHeader: { paddingBottom: 12 },
-  
-  // FIX: Replaced inline style block for separator
-  separator: { height: 10 }, 
+  listHeader:  { paddingBottom: 12 },
+  separator:   { height: 10 },
 
   // Search
   searchBar: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#fff',
-    borderWidth: 1, borderColor: '#E5E7EB',
-    borderRadius: 12, paddingHorizontal: 12,
-    marginBottom: 10, marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    marginTop: 8,
   },
-  searchIcon: { marginRight: 8 },
-  searchInput: {
-    flex: 1, fontSize: 14, color: '#111827',
-    paddingVertical: 11,
-  },
+  searchIcon:  { marginRight: 8 },
+  searchInput: { flex: 1, fontSize: 14, color: '#111827', paddingVertical: 11 },
 
   // Filter pills
-  filterRow: { flexDirection: 'row', gap: 8 },
-  filterPill: {
-    paddingHorizontal: 12, paddingVertical: 6,
-    borderRadius: 20, backgroundColor: '#fff',
-    borderWidth: 1, borderColor: '#E5E7EB',
-  },
-  filterPillActive: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
-  filterPillText: { fontSize: 12, fontWeight: '600', color: '#6B7280' },
+  filterRow:            { flexDirection: 'row', gap: 8 },
+  filterPill:           { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E5E7EB' },
+  filterPillActive:     { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  filterPillText:       { fontSize: 12, fontWeight: '600', color: '#6B7280' },
   filterPillTextActive: { color: '#fff' },
 
   // Empty
-  emptyState: {
-    alignItems: 'center', paddingTop: 60, gap: 8,
-    paddingHorizontal: 32,
-  },
-  emptyTitle: { fontSize: 15, fontWeight: '700', color: '#6B7280' },
+  emptyState:    { alignItems: 'center', paddingTop: 60, gap: 8, paddingHorizontal: 32 },
+  emptyTitle:    { fontSize: 15, fontWeight: '700', color: '#6B7280' },
   emptySubtitle: { fontSize: 12, color: '#9CA3AF', textAlign: 'center' },
 
   // FAB
   fab: {
-    position: 'absolute', bottom: 24, right: 20,
-    width: 56, height: 56, borderRadius: 28,
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#4F46E5',
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#4F46E5', shadowOpacity: 0.4,
-    shadowRadius: 10, elevation: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#4F46E5',
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
   },
 
   // Modals
   modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalCard: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     overflow: 'hidden',
   },
   modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', padding: 16,
-    borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
-  modalHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  modalHeaderLeft:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
   modalHeaderTitle: { fontSize: 15, fontWeight: '700' },
-  modalBody: { padding: 20 },
+  modalBody:        { padding: 20 },
 
   // Delete modal
-  deleteConfirmText: {
-    fontSize: 14, color: '#374151', textAlign: 'center', marginBottom: 14,
-  },
+  deleteConfirmText: { fontSize: 14, color: '#374151', textAlign: 'center', marginBottom: 14 },
   warningBox: {
-    flexDirection: 'row', gap: 8, alignItems: 'flex-start',
-    backgroundColor: '#FFFBEB', borderRadius: 10,
-    borderWidth: 1, borderColor: '#FDE68A',
-    padding: 12, marginBottom: 20,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 12,
+    marginBottom: 20,
   },
-  warningText: { fontSize: 12, color: '#92400E', flex: 1, lineHeight: 17 },
-  modalActions: { flexDirection: 'row', gap: 10 },
-  cancelBtn: {
-    flex: 1, padding: 14, backgroundColor: '#F3F4F6',
-    borderRadius: 12, alignItems: 'center',
-  },
+  warningText:   { fontSize: 12, color: '#92400E', flex: 1, lineHeight: 17 },
+  modalActions:  { flexDirection: 'row', gap: 10 },
+  cancelBtn:     { flex: 1, padding: 14, backgroundColor: '#F3F4F6', borderRadius: 12, alignItems: 'center' },
   cancelBtnText: { fontSize: 14, fontWeight: '700', color: '#374151' },
-  deleteBtn: {
-    flex: 1, padding: 14, backgroundColor: '#DC2626',
-    borderRadius: 12, alignItems: 'center',
-  },
+  deleteBtn:     { flex: 1, padding: 14, backgroundColor: '#DC2626', borderRadius: 12, alignItems: 'center' },
   deleteBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
 
   // Advance modal
   advanceSummary: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    backgroundColor: '#F9FAFB', borderRadius: 10,
-    padding: 10, marginBottom: 14,
-    borderWidth: 1, borderColor: '#F3F4F6',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   advanceSummaryText: { fontSize: 12, color: '#6B7280' },
   advanceSummaryBold: { fontWeight: '700', color: '#111827' },
   fieldLabel: {
-    fontSize: 11, fontWeight: '700', color: '#374151',
-    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 5,
   },
   fieldInput: {
-    backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
-    borderRadius: 10, padding: 12, fontSize: 14,
-    color: '#111827', fontWeight: '600', marginBottom: 12,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '600',
+    marginBottom: 12,
   },
   overborrowBox: {
-    flexDirection: 'row', gap: 8, alignItems: 'flex-start',
-    backgroundColor: '#FFFBEB', borderRadius: 10,
-    borderWidth: 1, borderColor: '#FDE68A',
-    padding: 10, marginBottom: 10,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 10,
+    marginBottom: 10,
   },
   overborrowText: { fontSize: 12, color: '#92400E', flex: 1 },
-  twoCol: { flexDirection: 'row', gap: 10 },
+  twoCol:         { flexDirection: 'row', gap: 10 },
   saveAdvanceBtn: {
-    backgroundColor: '#15803D', borderRadius: 12,
-    padding: 14, alignItems: 'center', marginTop: 4,
+    backgroundColor: '#15803D',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 4,
     marginBottom: 8,
   },
   saveAdvanceBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },

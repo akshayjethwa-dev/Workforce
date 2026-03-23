@@ -1,8 +1,14 @@
 // app/(admin)/_layout.tsx
-import { useWindowDimensions, View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import {
+  useWindowDimensions,
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+} from 'react-native';
 import { Tabs, useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-// ✅ No firebase imports here at all — use useAuth signOut instead
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useNetworkSync } from '../../src/hooks/useNetworkSync';
 
@@ -12,28 +18,38 @@ import { useNetworkSync } from '../../src/hooks/useNetworkSync';
 const ACTIVE   = '#4F46E5';
 const INACTIVE = '#9CA3AF';
 
+// ✅ FIX: Routes now match ACTUAL file structure in repo
+// index.tsx       → /(admin)/         (Dashboard)
+// workers/        → /(admin)/workers  (directory with index.tsx)
+// attendance/     → /(admin)/attendance (directory with index.tsx)
+// payroll.tsx     → /(admin)/payroll
+// reports.tsx     → /(admin)/reports
+// id-cards.tsx    → /(admin)/id-cards
+// team.tsx        → /(admin)/team
+// billing.tsx     → /(admin)/billing
+// settings/       → /(admin)/settings (directory)
+// worker-history.tsx → /(admin)/worker-history
 const NAV_ITEMS = [
-  { label: 'Dashboard',  icon: 'grid-outline',             route: '/(admin)/dashboard'  },
-  { label: 'Workers',    icon: 'people-outline',           route: '/(admin)/workers'    },
-  { label: 'Attendance', icon: 'checkmark-circle-outline', route: '/(admin)/attendance' },
-  { label: 'Payroll',    icon: 'cash-outline',             route: '/(admin)/payroll'    },
-  { label: 'Daily Logs', icon: 'document-text-outline',    route: '/(admin)/daily-logs' },
-  { label: 'Reports',    icon: 'pie-chart-outline',        route: '/(admin)/reports'    },
-  { label: 'ID Cards',   icon: 'card-outline',             route: '/(admin)/id-cards'   },
-  { label: 'Team',       icon: 'shield-checkmark-outline', route: '/(admin)/team'       },
-  { label: 'Billing',    icon: 'receipt-outline',          route: '/(admin)/billing'    },
-  { label: 'Settings',   icon: 'settings-outline',         route: '/(admin)/settings'   },
+  { label: 'Dashboard',  icon: 'grid-outline',             route: '/(admin)/',              matchSegment: ''               },
+  { label: 'Workers',    icon: 'people-outline',           route: '/(admin)/workers',       matchSegment: 'workers'        },
+  { label: 'Attendance', icon: 'checkmark-circle-outline', route: '/(admin)/attendance',    matchSegment: 'attendance'     },
+  { label: 'Payroll',    icon: 'cash-outline',             route: '/(admin)/payroll',       matchSegment: 'payroll'        },
+  { label: 'Reports',    icon: 'pie-chart-outline',        route: '/(admin)/reports',       matchSegment: 'reports'        },
+  { label: 'ID Cards',   icon: 'card-outline',             route: '/(admin)/id-cards',      matchSegment: 'id-cards'       },
+  { label: 'Team',       icon: 'shield-checkmark-outline', route: '/(admin)/team',          matchSegment: 'team'           },
+  { label: 'Billing',    icon: 'receipt-outline',          route: '/(admin)/billing',       matchSegment: 'billing'        },
+  { label: 'Settings',   icon: 'settings-outline',         route: '/(admin)/settings',      matchSegment: 'settings'       },
 ] as const;
 
 const SUPER_ADMIN_ITEMS = [
-  { label: 'Master Dashboard', icon: 'shield-outline', route: '/(admin)/super-admin' },
+  { label: 'Master Dashboard', icon: 'shield-outline', route: '/(superadmin)/', matchSegment: '' },
 ] as const;
 
 // ─────────────────────────────────────────────────────────────
 // Desktop Sidebar
 // ─────────────────────────────────────────────────────────────
 function DesktopSidebar() {
-  const { profile, logout } = useAuth(); // ✅ use logout from context
+  const { profile, logout } = useAuth();
   const router               = useRouter();
   const pathname             = usePathname();
   const isSuperAdmin         = profile?.role === 'SUPER_ADMIN';
@@ -72,7 +88,15 @@ function DesktopSidebar() {
         {/* Nav items */}
         <View style={sb.nav}>
           {items.map((item) => {
-            const isActive = pathname.startsWith(item.route.replace('/(admin)', ''));
+            // ✅ FIX: Proper active matching using pathname segments
+            let isActive = false;
+            if (item.matchSegment === '') {
+              // Dashboard: active only when on root admin path
+              isActive = pathname === '/' || pathname === '' || pathname === '/index';
+            } else {
+              isActive = pathname.includes(`/${item.matchSegment}`);
+            }
+
             return (
               <Pressable
                 key={item.route}
@@ -96,7 +120,6 @@ function DesktopSidebar() {
         </View>
       </ScrollView>
 
-      {/* ✅ logout from AuthContext — no firebase import needed */}
       <Pressable style={sb.logoutBtn} onPress={logout}>
         <Ionicons name="log-out-outline" size={18} color="#DC2626" />
         <Text style={sb.logoutTxt}>Logout</Text>
@@ -106,12 +129,20 @@ function DesktopSidebar() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Tab screen declarations (shared desktop + mobile)
+// Tab screen declarations
+// ✅ FIX: Tab names MUST match actual file/folder names exactly
+//   - "index"      → app/(admin)/index.tsx          (Dashboard)
+//   - "workers"    → app/(admin)/workers/index.tsx   (directory)
+//   - "attendance" → app/(admin)/attendance/index.tsx (directory)
+//   - "payroll"    → app/(admin)/payroll.tsx
+//   - "settings"   → app/(admin)/settings/index.tsx  (directory)
+//   - hidden tabs for all other navigable screens
 // ─────────────────────────────────────────────────────────────
 const TAB_SCREENS = (
   <>
+    {/* ── Visible tab bar items ── */}
     <Tabs.Screen
-      name="dashboard"
+      name="index"
       options={{
         title: 'Dashboard',
         tabBarIcon: ({ color }) => <Ionicons name="grid-outline" size={22} color={color} />,
@@ -128,7 +159,9 @@ const TAB_SCREENS = (
       name="attendance"
       options={{
         title: 'Attendance',
-        tabBarIcon: ({ color }) => <Ionicons name="checkmark-circle-outline" size={22} color={color} />,
+        tabBarIcon: ({ color }) => (
+          <Ionicons name="checkmark-circle-outline" size={22} color={color} />
+        ),
       }}
     />
     <Tabs.Screen
@@ -142,18 +175,19 @@ const TAB_SCREENS = (
       name="settings"
       options={{
         title: 'Settings',
-        tabBarIcon: ({ color }) => <Ionicons name="settings-outline" size={22} color={color} />,
+        tabBarIcon: ({ color }) => (
+          <Ionicons name="settings-outline" size={22} color={color} />
+        ),
       }}
     />
-    {/* Hidden from tab bar — still routable via router.push() */}
-    <Tabs.Screen name="daily-logs"     options={{ href: null }} />
+
+    {/* ── Hidden from tab bar — still routable via router.push() ── */}
     <Tabs.Screen name="reports"        options={{ href: null }} />
     <Tabs.Screen name="id-cards"       options={{ href: null }} />
     <Tabs.Screen name="team"           options={{ href: null }} />
     <Tabs.Screen name="billing"        options={{ href: null }} />
     <Tabs.Screen name="worker-history" options={{ href: null }} />
     <Tabs.Screen name="super-admin"    options={{ href: null }} />
-    <Tabs.Screen name="add-worker"     options={{ href: null }} />
   </>
 );
 
@@ -161,7 +195,7 @@ const TAB_SCREENS = (
 // Layout
 // ─────────────────────────────────────────────────────────────
 export default function AdminLayout() {
-    useNetworkSync();
+  useNetworkSync();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1024;
 
@@ -170,7 +204,12 @@ export default function AdminLayout() {
       <View style={lay.desktopRoot}>
         <DesktopSidebar />
         <View style={lay.desktopContent}>
-          <Tabs screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}>
+          <Tabs
+            screenOptions={{
+              headerShown: false,
+              tabBarStyle: { display: 'none' },
+            }}
+          >
             {TAB_SCREENS}
           </Tabs>
         </View>

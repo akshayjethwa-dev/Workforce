@@ -33,14 +33,14 @@ function RootGuard() {
       if (profile?.role === 'SUPER_ADMIN') {
         router.replace('/(superadmin)/' as any);
       } else {
-        router.replace('/(admin)/dashboard' as any);
+        router.replace('/(admin)/' as any);
       }
       return;
     }
 
     // ── Block non-super-admins from (superadmin) routes ─────
     if (inSuperAdminGroup && profile?.role !== 'SUPER_ADMIN') {
-      router.replace('/(admin)/dashboard' as any);
+      router.replace('/(admin)/' as any);
       return;
     }
 
@@ -52,7 +52,7 @@ function RootGuard() {
       if (profile?.role === 'SUPER_ADMIN') {
         router.replace('/(superadmin)/' as any);
       } else {
-        router.replace('/(admin)/dashboard' as any);
+        router.replace('/(admin)/' as any);
       }
     }
   }, [user, profile, loading, segments]);
